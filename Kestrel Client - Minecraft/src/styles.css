@@ -47,9 +47,13 @@ h1, h2, h3, p { margin: 0; }
 .crumb.swap { opacity: 0; transform: translateY(-4px); }
 .dlpill { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 7px; background: var(--surface); color: var(--text2); font-size: 12px; font-weight: 500; margin-right: 8px; transition: background var(--fast); }
 .dlpill:hover, .dlpill[aria-expanded="true"] { background: var(--control); color: var(--text); }
-.updpill { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; margin-right: 6px; border-radius: 7px; font-size: 12px; font-weight: 600;
-  color: var(--accent-text); background: var(--accent-tint); transition: background var(--fast); }
-.updpill:hover:not(:disabled) { background: rgba(61, 216, 121, .22); }
+/* Update ready: small solid green square left of the news bell */
+.updbtn { display: grid; place-items: center; width: 24px; height: 24px; margin-right: 6px; border-radius: 7px; color: #fff; flex: none;
+  background: #2f9a55; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22), 0 2px 4px rgba(0, 0, 0, .2);
+  transition: background var(--fast), transform var(--fast) var(--ease); animation: updIn calc(320ms * var(--m)) var(--ease) both; }
+.updbtn:hover { background: #36ad61; }
+.updbtn:active { transform: scale(.94); }
+@keyframes updIn { from { opacity: 0; transform: scale(.6); } }
 /* What's new: bell that slides open to a label on hover / when open */
 .newsbtn { position: relative; display: flex; align-items: center; height: 24px; padding: 0 6px; margin-right: 6px; border-radius: 7px; color: var(--text);
   background: var(--control); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14), 0 2px 4px rgba(0, 0, 0, .2); transition: background var(--fast); }

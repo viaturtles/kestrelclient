@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlertTriangle, Bell,ChevronDown, ChevronLeft, ChevronRight, Download, Folder, FolderOpen, Gamepad2, Globe, House, Images, Info, LogIn, LogOut, MessageCircle, Minus, Palette, Puzzle, RefreshCw, RotateCcw, Scale, Settings as Gear, Square, User, X, FileText, MonitorPlay } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, Bell,ChevronDown, ChevronLeft, ChevronRight, Download, Folder, FolderOpen, Gamepad2, Globe, House, Images, Info, LogIn, LogOut, MessageCircle, Minus, Palette, Puzzle, RefreshCw, RotateCcw, Scale, Settings as Gear, Square, User, X, FileText, MonitorPlay } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, inApp, onMission } from "../lib/api";
 import type { Update } from "@tauri-apps/plugin-updater";
@@ -212,8 +212,8 @@ export function Shell() {
         </div>
         <div className="drag" onMouseDown={(e) => { if (e.button === 0 && e.detail === 1) control("startDragging"); }} />
         {update && (
-          <button className="updpill" onClick={() => openUpdatePrompt(update)} title={`Kestrel ${update.version} is ready`}>
-            <Download size={13} />Update to {update.version}
+          <button className="updbtn" aria-label={`Update Kestrel to ${update.version}`} title={`Update to ${update.version}`} onClick={() => openUpdatePrompt(update)}>
+            <ArrowDownToLine size={14} strokeWidth={2.4} />
           </button>
         )}
         <MenuAnchor open={menu === "news"} onClose={() => setMenu("")} trigger={
