@@ -122,8 +122,10 @@ export function Shell() {
   useEffect(() => {
     if (!inApp) return;
     const first = setTimeout(() => runUpdateCheck(false), 4000), every = setInterval(() => runUpdateCheck(false), 30 * 60 * 1000);
+    const onCheck = () => runUpdateCheck(true);
+    window.addEventListener("kestrel:check-updates", onCheck);
     const unFocus = getCurrentWindow().onFocusChanged(({ payload: focused }) => { if (focused && promptPending.current && updateRef.current) openUpdatePrompt(updateRef.current); });
-    return () => { clearTimeout(first); clearInterval(every); unFocus.then((f) => f()); };
+    return () => { clearTimeout(first); clearInterval(every); window.removeEventListener("kestrel:check-updates", onCheck); unFocus.then((f) => f()); };
   }, []);
   const updateRef = useRef<Update | null>(null); updateRef.current = update;
   const settingsRef = useRef(app.settings); settingsRef.current = app.settings;

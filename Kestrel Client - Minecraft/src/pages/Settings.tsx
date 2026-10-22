@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Bell, Download, FileText, FolderOpen, Gamepad2, HardDrive, Lock, LogIn, MessageCircle, RefreshCw, Search, ShieldCheck, SlidersHorizontal, User } from "lucide-react";
 import { api, inApp, DESKTOP_ONLY } from "../lib/api";
+import { getVersion } from "@tauri-apps/api/app";
 import { errText, useApp } from "../lib/store";
 import { sfx } from "../lib/sfx";
 import { Group, Row, Select, Toggle } from "../components/ui";
@@ -104,6 +105,8 @@ function Game() {
 
 function General() {
   const app = useApp(), s = app.settings, set = app.setSettings;
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => { if (inApp) getVersion().then(setVersion).catch(() => {}); }, []);
   return (
     <>
       <Group title="Appearance">
@@ -116,6 +119,11 @@ function General() {
         <Row title="Volume">
           <input className="slider" type="range" min={0} max={100} value={Math.round(s.soundVolume * 100)} aria-label="Sound volume" disabled={!s.interfaceSounds} style={{ width: 200, ["--fill" as string]: `${s.soundVolume * 100}%` }}
             onChange={(e) => set({ soundVolume: +e.target.value / 100 })} onMouseUp={() => sfx.done(s.soundVolume)} />
+        </Row>
+      </Group>
+      <Group title="Updates">
+        <Row title={`Kestrel ${version ?? ""}`.trim()} detail="Kestrel checks for updates on its own every 30 minutes.">
+          <button className="btn sm" disabled={!inApp} onClick={() => window.dispatchEvent(new Event("kestrel:check-updates"))}><RefreshCw size={14} />Check for updates</button>
         </Row>
       </Group>
       <Group title="Startup">
