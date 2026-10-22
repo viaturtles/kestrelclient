@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, inApp, onMission } from "../lib/api";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { checkForUpdate, installUpdate } from "../lib/updates";
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { openMissionControl } from "../lib/launch";
 import { sfx } from "../lib/sfx";
 import { SECTION_ORDER, sectionOf, useApp, type Route } from "../lib/store";
@@ -104,15 +105,28 @@ export function Shell() {
     });
     return () => { un.then((f) => f()); };
   }, [app.settings.onGameStart]);
-  // Auto-update: check shortly after start, offer a one-click restart when a new version is ready.
+  // Auto-update: check now and every 30 minutes. A new version sends a Windows notification;
+  // coming back to Kestrel (or clicking it) opens the update prompt. Ignored updates install on next start.
   const [update, setUpdate] = useState<Update | null>(null);
-  const [updating, setUpdating] = useState<number | null>(null);
-  const runUpdateCheck = (manual: boolean) => checkForUpdate().then((u) => {
+  const announced = useRef<string | null>(null), promptPending = useRef(false);
+  const openUpdatePrompt = (u: Update) => { promptPending.current = false; app.openDialog({ title: "Update available", body: <UpdatePrompt update={u} /> }); };
+  const runUpdateCheck = (manual: boolean) => checkForUpdate().then(async (u) => {
     setUpdate(u);
-    if (manual) app.notify(u ? `Kestrel ${u.version} is ready to install.` : "You're on the latest version of Kestrel.");
+    if (manual) { if (u) openUpdatePrompt(u); else app.notify("You're on the latest version of Kestrel."); return; }
+    if (!u || announced.current === u.version) return;
+    announced.current = u.version;
+    if (await getCurrentWindow().isFocused()) { openUpdatePrompt(u); return; }
+    promptPending.current = true;
+    if (settingsRef.current.notifyUpdates && settingsRef.current.notifyMode !== "never") notifyWindows("Kestrel update available", `Version ${u.version} is ready. Open Kestrel to update.`);
   }).catch(() => { if (manual) app.notify("Couldn't check for updates. Check your internet connection.", "error"); });
-  useEffect(() => { if (!inApp) return; const t = setTimeout(() => runUpdateCheck(false), 4000); return () => clearTimeout(t); }, []);
-  const doUpdate = () => { if (!update || updating !== null) return; setUpdating(0); installUpdate(update, setUpdating).catch((e) => { setUpdating(null); app.notify(`Update failed: ${e instanceof Error ? e.message : e}`, "error"); }); };
+  useEffect(() => {
+    if (!inApp) return;
+    const first = setTimeout(() => runUpdateCheck(false), 4000), every = setInterval(() => runUpdateCheck(false), 30 * 60 * 1000);
+    const unFocus = getCurrentWindow().onFocusChanged(({ payload: focused }) => { if (focused && promptPending.current && updateRef.current) openUpdatePrompt(updateRef.current); });
+    return () => { clearTimeout(first); clearInterval(every); unFocus.then((f) => f()); };
+  }, []);
+  const updateRef = useRef<Update | null>(null); updateRef.current = update;
+  const settingsRef = useRef(app.settings); settingsRef.current = app.settings;
   // Ctrl+1 / 2 / 3 jump between sections.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -198,8 +212,8 @@ export function Shell() {
         </div>
         <div className="drag" onMouseDown={(e) => { if (e.button === 0 && e.detail === 1) control("startDragging"); }} />
         {update && (
-          <button className="updpill" onClick={doUpdate} disabled={updating !== null} title={`Install Kestrel ${update.version} and restart`}>
-            <Download size={13} />{updating === null ? `Update to ${update.version}` : `Updating… ${Math.round(updating * 100)}%`}
+          <button className="updpill" onClick={() => openUpdatePrompt(update)} title={`Kestrel ${update.version} is ready`}>
+            <Download size={13} />Update to {update.version}
           </button>
         )}
         <MenuAnchor open={menu === "news"} onClose={() => setMenu("")} trigger={
@@ -315,6 +329,41 @@ function DownloadsPopover() {
       ))}
     </div>
   );
+}
+
+/** "Update available" prompt: new version, what's new, Relaunch and update. */
+function UpdatePrompt({ update }: { update: Update }) {
+  const app = useApp();
+  const [progress, setProgress] = useState<number | null>(null);
+  const notes = (update.body ?? "").replace(/\r/g, "").trim();
+  const go = () => {
+    setProgress(0);
+    installUpdate(update, setProgress).catch((e) => { setProgress(null); app.notify(`Update failed: ${e instanceof Error ? e.message : e}`, "error"); });
+  };
+  return (
+    <>
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <img src="/assets/imgKestrelOriginalWhiteBird.svg" alt="" style={{ width: 40, height: 40 }} />
+        <div><b className="t-heading">Kestrel {update.version}</b><div className="t-cap">You have {update.currentVersion}. Kestrel restarts to finish.</div></div>
+      </div>
+      {notes && <div className="muted" style={{ maxHeight: 200, overflowY: "auto", whiteSpace: "pre-wrap", lineHeight: "20px", background: "var(--surface)", borderRadius: 10, padding: "12px 14px", fontSize: 13 }}>{notes}</div>}
+      {progress !== null && <div className="progress"><span style={{ width: `${Math.max(4, Math.round(progress * 100))}%` }} /></div>}
+      <div className="actions">
+        <span className="t-cap" style={{ flex: 1 }}>{progress === null ? "Not now? It installs next time you open Kestrel." : `Downloading… ${Math.round(progress * 100)}%`}</span>
+        <button className="btn ghost" disabled={progress !== null} onClick={app.closeDialog}>Later</button>
+        <button className="btn green" disabled={progress !== null} onClick={go}><RefreshCw size={15} />Relaunch and update</button>
+      </div>
+    </>
+  );
+}
+
+/** Windows notification (asks for permission the first time). */
+async function notifyWindows(title: string, body: string) {
+  try {
+    let ok = await isPermissionGranted();
+    if (!ok) ok = (await requestPermission()) === "granted";
+    if (ok) sendNotification({ title, body });
+  } catch { /* notifications off: the title-bar button still shows the update */ }
 }
 
 export function signInDialog(app: ReturnType<typeof useApp>) {

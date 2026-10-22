@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, inApp } from "../lib/api";
 import { useApp } from "../lib/store";
+import { checkForUpdate, installUpdate } from "../lib/updates";
 
 // Figma 53:559 "Kestrel - Loading Screen". The design is unchanged; the line under the
 // bar now names the real step in progress, and the bar advances as steps finish.
@@ -14,7 +15,7 @@ export function Splash({ onDone }: { onDone: () => void }) {
   const [done, setDone] = useState(0);
   const [leaving, setLeaving] = useState(false);
   const ran = useRef(false);
-  const steps = 5;
+  const steps = 6;
 
   useEffect(() => {
     if (ran.current) return;
@@ -25,6 +26,14 @@ export function Splash({ onDone }: { onDone: () => void }) {
         try { await work(); } catch { /* each step reports problems on its own page later */ }
         setDone((d) => d + 1);
       };
+      // A waiting update installs here, so people who ignored the prompt just restart Kestrel.
+      await step("Checking for updates", async () => {
+        if (!inApp) return;
+        const u = await withTimeout(checkForUpdate(), 6000);
+        if (!u) return;
+        setText(`Updating Kestrel to ${u.version}`);
+        await installUpdate(u, (p) => setText(`Updating Kestrel to ${u.version} · ${Math.round(p * 100)}%`)); // restarts Kestrel when done
+      });
       await step("Loading your settings", async () => { if (inApp) app.setPaths(await api.paths()); await new Promise((r) => setTimeout(r, 120)); });
       await step("Finding Java on this PC", async () => { if (inApp) await withTimeout(app.refreshJava(), 15000); });
       await step("Checking Minecraft versions", async () => { if (inApp) await withTimeout(api.mcVersions(), 8000); });
