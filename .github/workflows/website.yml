@@ -1,10 +1,10 @@
-# Publishes the website/ folder to GitHub Pages on every push to main that touches it.
+# Publishes the website folder to GitHub Pages on every push to main that touches it.
 name: Website
 
 on:
   push:
     branches: [main]
-    paths: ["website/**", ".github/workflows/website.yml"]
+    paths: ["Kestrel Client - Minecraft/website/**", ".github/workflows/website.yml"]
   workflow_dispatch:
 
 permissions:
@@ -27,6 +27,6 @@ jobs:
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: website
+          path: Kestrel Client - Minecraft/website
       - id: deployment
         uses: actions/deploy-pages@v4

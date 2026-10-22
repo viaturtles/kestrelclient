@@ -10,6 +10,10 @@ on:
 permissions:
   contents: write
 
+defaults:
+  run:
+    working-directory: Kestrel Client - Minecraft
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -19,15 +23,17 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: Kestrel Client - Minecraft/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: Kestrel Client - Minecraft/src-tauri
       - run: npm ci
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          projectPath: Kestrel Client - Minecraft
           tagName: ${{ github.ref_name }}
           releaseName: Kestrel ${{ github.ref_name }}
           releaseBody: Download the setup .exe below, run it, and you're done. Windows may say "Windows protected your PC" because the installer isn't signed yet; choose More info, then Run anyway.

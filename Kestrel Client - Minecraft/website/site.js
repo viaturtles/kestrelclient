@@ -2,7 +2,7 @@
 const KESTREL_LINKS = {
   // Always points at the newest release's installer.
   download: "https://github.com/viaturtles/kestrelclient/releases/latest",
-  discord: "https://discord.gg/INVITE",
+  discord: "https://discord.gg/8pVEuMc6NZ",
 };
 
 document.querySelectorAll("[data-link]").forEach((a) => {
