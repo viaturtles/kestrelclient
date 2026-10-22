@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Cpu, Play, Plus, Settings as Gear } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Cpu, Play, Plus, Settings as Gear, UserPlus, Users } from "lucide-react";
 import { COVERS, useApp, type HistoryItem, type Mode } from "../lib/store";
 import { launchInstallation } from "../lib/launch";
-import { api, inApp, onMission } from "../lib/api";
+import { api, inApp, onMission, type ServerStatus } from "../lib/api";
+import { signInDialog } from "../components/Shell";
 import { useDismiss } from "../components/ui";
 import { newInstallationDialog } from "./Installations";
 
@@ -25,7 +26,6 @@ export function LaunchButton({ onLaunch }: { onLaunch: () => void }) {
         <span className="shine" />
         <button className="main" aria-label={`Launch ${inst.name}`} onClick={onLaunch}>
           <span className="big">{busy ? "PREPARING…" : "LAUNCH GAME"}</span>
-          <span className="sub"><img className="bird" src="/assets/imgKestrelOriginalWhiteBird.svg" alt="" />Kestrel {inst.version} with<img src={modeIcon(inst.mode)} alt="" />{inst.mode}</span>
         </button>
         <button className="chev" aria-label="Choose launch mode" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}><ChevronDown size={18} strokeWidth={2.5} /></button>
       </div>
@@ -45,6 +45,81 @@ export function LaunchButton({ onLaunch }: { onLaunch: () => void }) {
   );
 }
 
+/** "2h ago", "Yesterday", "Oct 18". */
+function ago(ms: number) {
+  if (!ms) return "Never played";
+  const m = (Date.now() - ms) / 60000;
+  if (m < 1) return "Just now";
+  if (m < 60) return `${Math.floor(m)}m ago`;
+  if (m < 1440) return `${Math.floor(m / 60)}h ago`;
+  if (m < 2880) return "Yesterday";
+  return new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+/** Saved servers with live player counts and ping. */
+function ServersPanel() {
+  const app = useApp();
+  const [status, setStatus] = useState<Record<string, ServerStatus | null>>({});
+  useEffect(() => {
+    if (!inApp) return;
+    const ping = () => app.servers.forEach((s) => api.pingServer(s.address).then((r) => setStatus((x) => ({ ...x, [s.id]: r }))).catch(() => setStatus((x) => ({ ...x, [s.id]: { online: false } }))));
+    ping();
+    const t = setInterval(ping, 60000);
+    return () => clearInterval(t);
+  }, [app.servers.map((s) => s.address).join()]);
+  const list = [...app.servers].sort((a, b) => Number(!!status[b.id]?.online) - Number(!!status[a.id]?.online)).slice(0, 4);
+  return (
+    <section className="st hpanel" style={{ gridArea: "servers", ["--i" as string]: 3 }}>
+      <div className="jh"><span>Your servers</span><button className="link" onClick={() => app.navigate({ name: "servers" })}>Servers<ChevronRight size={14} /></button></div>
+      {list.length === 0 && <div className="hempty">Add servers on the Servers page to see who's online.</div>}
+      {list.map((s) => {
+        const st = status[s.id], on = !!st?.online;
+        return (
+          <div key={s.id} className="jrow" style={{ opacity: st && !on ? 0.55 : 1 }}>
+            <span className="jthumb" style={{ imageRendering: "pixelated", backgroundImage: `url(${st?.favicon ?? (/hypixel/i.test(s.address) ? COVERS.hypixel.src : COVERS.classic.src)})` }} />
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <b className="t-strong ell">{s.name}</b>
+              <span className="t-cap" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span className="sdot" style={{ background: st === undefined ? "var(--text3)" : on ? "var(--accent-text)" : "var(--text3)" }} />
+                {!inApp ? s.address : st === undefined ? "Checking…" : on ? `${(st.playersOnline ?? 0).toLocaleString()} online${st.pingMs != null ? ` · ${st.pingMs} ms` : ""}` : "Offline"}
+              </span>
+            </span>
+            {on && <button className="btn grey sm" onClick={() => launchInstallation(app, app.selected, s.address)}><Play size={12} />Join</button>}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+/** Friends: needs Microsoft sign-in; adding friends arrives with Kestrel's online service. */
+function FriendsPanel() {
+  const app = useApp();
+  return (
+    <section className="st hpanel friends" style={{ gridArea: "friends", ["--i" as string]: 2 }}>
+      <div className="fh">
+        <b>Friends</b>
+        <button className="ibtn grey sm" aria-label="Add friend" disabled={!app.account} title={app.account ? "Adding friends arrives in an upcoming update" : "Sign in with Microsoft first"}><UserPlus size={15} /></button>
+      </div>
+      <div className="fempty">
+        <span className="ficon"><Users size={22} /></span>
+        {app.account ? (
+          <>
+            <b>Add friends by their Minecraft name</b>
+            <span>See what your friends are playing and join them in one click. Friends arrive in an upcoming update.</span>
+          </>
+        ) : (
+          <>
+            <b>Sign in to add friends</b>
+            <span>Friends use your Minecraft account, so sign in with Microsoft to add players by their Minecraft name.</span>
+            <button className="btn grey sm" style={{ marginTop: 6 }} onClick={() => signInDialog(app)}>Sign in with Microsoft</button>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function Home() {
   const app = useApp();
   const inst = app.selected;
@@ -59,7 +134,7 @@ export function Home() {
       kind: "world", name: w.name, detail: `Singleplayer · ${i.name}`, version: i.version, at: w.lastPlayed, installationId: i.id, icon: w.icon,
     }))).catch(() => [] as HistoryItem[]))).then((all) => setWorlds(all.flat()));
   }, [app.installations.length, app.history.length]);
-  const history = [...app.history.filter((h) => h.kind === "server"), ...worlds].sort((a, b) => b.at - a.at).slice(0, 3);
+  const history = [...app.history.filter((h) => h.kind === "server"), ...worlds].sort((a, b) => b.at - a.at).slice(0, 4);
   const playItem = (h: HistoryItem) => {
     const target = app.installations.find((i) => i.id === h.installationId) ?? inst;
     if (target.id !== inst.id) app.selectInstallation(target.id);
@@ -88,8 +163,8 @@ export function Home() {
         </div>
       </section>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 340px", gap: 20, alignItems: "start", flex: 1 }}>
-      <div className="st" style={{ display: "flex", gap: 10, flexWrap: "wrap", alignContent: "flex-start", ["--i" as string]: 1 }}>
+      <div className="home-grid">
+      <div className="st" style={{ gridArea: "inst", display: "flex", gap: 10, flexWrap: "wrap", alignContent: "flex-start", ["--i" as string]: 1 }}>
         {app.installations.map((i) => {
           const on = i.id === inst.id;
           return (
@@ -103,18 +178,20 @@ export function Home() {
         <button onClick={() => newInstallationDialog(app)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px 8px 12px", borderRadius: 10, color: "var(--text2)", fontWeight: 600, boxShadow: "inset 0 0 0 1px var(--divider)" }}><Plus size={16} />New installation</button>
       </div>
 
-        <section className="st jumpback" style={{ ["--i" as string]: 2 }}>
-          <div className="jh"><span>Jump back in</span><button className="link" onClick={() => app.navigate({ name: "servers" })}>Servers<ChevronRight size={14} /></button></div>
+        <section className="st hpanel" style={{ gridArea: "jump", ["--i" as string]: 2 }}>
+          <div className="jh"><span>Jump back in</span><button className="link" onClick={() => app.navigate({ name: "installations", id: inst.id, tab: "Worlds" })}>Worlds<ChevronRight size={14} /></button></div>
           {history.length === 0 ? (
-            <div className="t-cap" style={{ padding: "6px 0 10px" }}>Servers and worlds you play from Kestrel show up here.</div>
+            <div className="hempty">Worlds and servers you play show up here.</div>
           ) : history.map((h, n) => (
             <div key={n} className="jrow">
               <span className="jthumb" style={{ imageRendering: h.icon ? "pixelated" : undefined, backgroundImage: `url(${h.icon ? h.icon : h.kind === "server" && /hypixel/i.test(h.serverAddress ?? "") ? COVERS.hypixel.src : h.kind === "server" ? COVERS.classic.src : COVERS.sunset.src})` }} />
-              <span style={{ flex: 1, minWidth: 0 }}><b className="t-strong" style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name}</b><span className="t-cap">{h.detail} · {h.version}</span></span>
+              <span style={{ flex: 1, minWidth: 0 }}><b className="t-strong ell">{h.name}</b><span className="t-cap ell">{h.detail} · {ago(h.at)}</span></span>
               <button className="ibtn grey sm" aria-label={`Play ${h.name}`} onClick={() => playItem(h)}><Play size={13} /></button>
             </div>
           ))}
         </section>
+        <ServersPanel />
+        <FriendsPanel />
       </div>
     </div>
   );
