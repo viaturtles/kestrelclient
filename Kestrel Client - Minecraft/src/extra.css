@@ -1,0 +1,81 @@
+/* Page-specific pieces */
+.ov-grid { display: grid; grid-template-columns: minmax(0, 1fr) 324px; gap: 20px; }
+@media (max-width: 1180px) { .ov-grid { grid-template-columns: minmax(0, 1fr); } }
+.row .tx { min-width: 140px; }
+.hov { transition: background var(--fast); }
+.hov:hover { background: var(--surface); }
+.clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 18px; }
+.noicon { width: 64px; height: 64px; border-radius: 12px; background: var(--hover); display: grid; place-items: center; font-size: 24px; font-weight: 700; color: var(--text2); flex: none; }
+
+.mod-card { display: flex; gap: 16px; padding: 16px; border-radius: 12px; background: var(--surface); text-align: left; min-height: 136px; transition: background var(--base), transform var(--base) var(--ease), box-shadow var(--base); }
+.mod-card:hover { background: var(--hover); transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0, 0, 0, .35); }
+.mod-card > img { width: 64px; height: 64px; border-radius: 12px; object-fit: cover; flex: none; transition: transform var(--slow) var(--spring); }
+.mod-card:hover > img { transform: scale(1.06) rotate(-2deg); }
+
+.srow { display: grid; grid-template-columns: minmax(0, 1fr) 150px 100px 170px 200px; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; transition: background var(--fast); }
+.srow:not(.head):hover { background: var(--surface); }
+.srow.head { border-bottom: 1px solid var(--divider); border-radius: 0; padding-block: 8px; }
+
+.shot img { transition: transform calc(600ms * var(--m)) var(--ease); }
+.shot:hover img { transform: scale(1.04); }
+.shot .shot-actions { opacity: 0; transform: translateY(4px); transition: opacity var(--fast), transform var(--fast); }
+.shot:hover .shot-actions, .shot:focus-within .shot-actions { opacity: 1; transform: none; }
+
+/* Home: compact Jump back in panel */
+.jumpback { background: var(--panel); border-radius: 12px; padding: 16px 12px 8px 16px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); display: flex; flex-direction: column; }
+.jumpback .jh { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.jumpback .jh span { font-size: 12px; font-weight: 700; letter-spacing: .06em; color: var(--text3); }
+.jumpback .jrow { display: flex; align-items: center; gap: 12px; padding: 7px 0; }
+.jumpback .jthumb { width: 34px; height: 34px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
+
+/* Content icons (Modrinth icon or a placeholder) */
+.c-icon { width: 40px; height: 40px; border-radius: 8px; background: var(--surface); display: grid; place-items: center; color: var(--text3); flex: none; overflow: hidden; }
+.c-icon img { width: 100%; height: 100%; object-fit: cover; }
+.c-icon.w img { image-rendering: pixelated; }
+
+/* Plain information strip */
+.notice { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 14px; border-radius: 10px; background: var(--surface); color: var(--text2); font-size: 13px; }
+.notice svg { color: var(--text); flex: none; }
+
+/* Drop files onto the window */
+.drop-veil { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: rgba(12, 13, 15, .72); pointer-events: none; animation: fade calc(160ms * var(--m)) ease both; }
+.drop-veil > div { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 32px 44px; border-radius: 16px; border: 1.5px dashed rgba(255, 255, 255, .28); background: var(--panel); color: var(--text2); font-size: 13px; }
+.drop-veil b { color: var(--text); font-size: 16px; }
+@keyframes fade { from { opacity: 0; } }
+
+/* Checklist used by the import dialog */
+.pick-list { display: flex; flex-direction: column; background: var(--surface); border-radius: 12px; padding: 4px; }
+.pick { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 8px; text-align: left; transition: background var(--fast); }
+.pick:hover { background: var(--hover); }
+.pick .box { width: 18px; height: 18px; border-radius: 5px; flex: none; display: grid; place-items: center; box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .28); transition: background var(--fast), box-shadow var(--fast); }
+.pick.on .box { background: var(--text); color: var(--window); box-shadow: none; }
+.pick .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.pick:not(.on) .nm { color: var(--text3); }
+
+/* ---------- Launch Control ---------- */
+.mgraph { display: flex; flex-direction: column; gap: 6px; padding-top: 14px; margin-top: auto; border-top: 1px solid var(--divider); }
+.mgraph .mg-row { display: flex; align-items: baseline; justify-content: space-between; }
+.mgraph svg { width: 100%; height: 40px; display: block; }
+.mcrash { margin: 12px 16px 0; padding: 12px 14px; border-radius: 10px; background: rgba(255, 107, 118, .10); box-shadow: inset 0 0 0 1px rgba(255, 107, 118, .22); display: flex; gap: 10px; color: var(--text); font-size: 13px; line-height: 19px; }
+.mcrash svg { color: var(--danger); flex: none; margin-top: 2px; }
+.mission .mpanel { position: absolute; left: 8px; right: 8px; top: 36px; bottom: 8px; border-radius: 12px; background: var(--panel); display: flex; flex-direction: column; overflow: hidden; user-select: text; }
+.mhead { display: flex; align-items: center; gap: 10px; padding: 18px 20px; border-bottom: 1px solid var(--divider); }
+.statedot { width: 8px; height: 8px; border-radius: 50%; flex: none; transition: box-shadow var(--base); }
+.mbody { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr); }
+.msteps { padding: 18px 16px 18px 20px; border-right: 1px solid var(--divider); display: flex; flex-direction: column; gap: 14px; overflow: auto; }
+.mstep { display: flex; gap: 10px; animation: rise calc(260ms * var(--m)) var(--ease) both; }
+.mstep .micon { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--hover); color: var(--text3); margin-top: -2px; }
+.mstep.done .micon { background: rgba(80, 213, 129, .16); color: var(--accent-text); }
+.mstep.failed .micon { background: rgba(255, 107, 118, .16); color: var(--danger); }
+.mstep.skipped .micon { background: rgba(243, 196, 107, .14); color: var(--warn); }
+.mstep.running .micon { background: rgba(143, 201, 255, .14); }
+.mstep.pending b { color: var(--text3); }
+.mconsole { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.mtools { display: flex; align-items: center; gap: 6px; padding: 12px 16px; border-bottom: 1px solid var(--divider); }
+.mlog { flex: 1; overflow: auto; padding: 10px 16px 16px; font-size: 12px; line-height: 19px; background: #101114; }
+.ml { display: grid; grid-template-columns: 74px 14px minmax(0, 1fr); gap: 8px; align-items: start; }
+.ml svg { margin-top: 4px; }
+.ml .mt { white-space: pre-wrap; overflow-wrap: anywhere; color: #c9d1da; }
+.ml.game .mt { color: #aab3bd; }
+.ml.warn .mt, .ml.warn svg { color: var(--warn); }
+.ml.error .mt, .ml.error svg { color: var(--danger); }

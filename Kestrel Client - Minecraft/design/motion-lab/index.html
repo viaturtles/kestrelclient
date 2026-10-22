@@ -1,0 +1,638 @@
+<title>Kestrel Motion Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+/* Layout: a true-scale Kestrel window (1280×800) scaled to fit, controls beneath, motion reference last.
+   Single dark look on purpose — Kestrel itself is a dark app. */
+:root{
+  color-scheme: dark;
+  --page:#08090A; --window:#0C0D0F; --panel:#141519; --surface:#1C1D22; --hover:#24262C;
+  --solid:#292B31; --control:rgba(146,153,164,.17); --divider:rgba(255,255,255,.06);
+  --text:#F2F3F5; --text2:#A3A8B0; --text3:#6C717A; --accent:#38D374; --accent-text:#5BE38F; --warn:#F3C46B;
+  --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  /* motion tokens */
+  --m: 1; /* speed multiplier */
+  --fast: calc(120ms * var(--m)); --base: calc(200ms * var(--m)); --slow: calc(320ms * var(--m));
+  --ease: cubic-bezier(.2,.8,.2,1); --emph: cubic-bezier(.65,0,.35,1); --spring: cubic-bezier(.3,1.35,.5,1);
+}
+*{box-sizing:border-box}
+html,body{background:var(--page);color:var(--text)}
+body{font-family:var(--font);font-size:14px;padding-inline:16px;padding-block:28px 48px}
+.wrap{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+header.intro{display:flex;flex-direction:column;gap:6px}
+header.intro h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-.2px;text-wrap:balance}
+header.intro p{margin:0;color:var(--text2);max-width:68ch;line-height:1.55}
+
+/* ---------- stage ---------- */
+.stage{position:relative;width:100%;max-width:1280px;aspect-ratio:1280/800;border-radius:12px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.06)}
+.win{position:absolute;left:0;top:0;width:1280px;height:800px;transform-origin:0 0;background:var(--window);overflow:hidden;user-select:none}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+button:focus-visible,.tile:focus-visible{outline:2px solid #B9C3CF;outline-offset:2px}
+svg.i{width:var(--s,16px);height:var(--s,16px);stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* title bar */
+.tb{position:absolute;inset:0 0 auto 0;height:36px;display:flex;align-items:center;padding-left:12px}
+.brand{display:flex;align-items:center;gap:8px;height:28px;padding:0 6px;border-radius:7px;font-size:10px;font-weight:600;letter-spacing:2px;color:var(--text)}
+.brand img{width:18px;height:18px}
+.brand .i{--s:12px;color:var(--text3)}
+.navb{display:flex;align-items:center;gap:4px;margin-left:12px;color:var(--text2);font-size:12px;font-weight:500}
+.navb .i{--s:14px}
+.navb .fwd{color:var(--text3)}
+.crumb{display:inline-block;transition:opacity var(--fast),transform var(--base) var(--ease)}
+.crumb.swap{opacity:0;transform:translateY(-4px)}
+.tb .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.dl{display:flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:7px;background:var(--surface);color:var(--text2);font-size:12px;font-weight:500}
+.dl .i{--s:13px}
+.wc{display:flex}.wc span{width:36px;height:36px;display:grid;place-items:center;color:var(--text2)}.wc .i{--s:13px}
+
+/* rail */
+.rail{position:absolute;left:0;top:36px;width:56px;bottom:0}
+.rail .top{position:absolute;left:8px;top:24px;display:flex;flex-direction:column;gap:12px}
+.rail .bot{position:absolute;left:8px;bottom:20px;display:flex;flex-direction:column;gap:12px}
+.rb{width:40px;height:40px;border-radius:9px;display:grid;place-items:center;color:var(--text2);position:relative;z-index:1;transition:color var(--base)}
+.rb .i{--s:20px;transition:transform var(--base) var(--spring)}
+.rb:hover .i{transform:scale(1.1)}
+.rb.on{color:var(--text)}
+.rb.av img{width:28px;height:28px;border-radius:6px;image-rendering:pixelated}
+.railpill{position:absolute;left:8px;top:24px;width:40px;height:40px;border-radius:9px;background:var(--control);box-shadow:0 2px 4px rgba(0,0,0,.2);transition:transform calc(380ms*var(--m)) var(--spring),opacity var(--fast)}
+.raildiv{position:absolute;left:16px;width:24px;height:1px;background:var(--divider);bottom:124px}
+
+/* panel + pages */
+.panel{position:absolute;left:56px;top:36px;width:1216px;height:756px;border-radius:12px;background:var(--panel);overflow:hidden}
+.page{position:absolute;inset:0}
+.page[hidden]{display:none!important}
+
+/* shared */
+.btn{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:8px;font-weight:600;font-size:13px;background:var(--control);box-shadow:inset 0 0 0 1px rgba(255,255,255,.10),0 2px 4px rgba(0,0,0,.2);transition:transform var(--fast) var(--ease),background var(--fast)}
+.btn:hover{background:rgba(146,153,164,.26)}
+.btn:active{transform:translateY(1px) scale(.98)}
+.btn.green{background:rgba(61,216,121,.14);color:var(--accent-text);box-shadow:none}
+.solid{width:48px;height:48px;border-radius:10px;display:grid;place-items:center;background:var(--solid);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 2px 4px rgba(0,0,0,.25);color:var(--text);transition:transform var(--fast) var(--ease),background var(--fast)}
+.solid:hover{background:#33363D}.solid:active{transform:scale(.96)}
+.solid .i{--s:18px;transition:transform var(--slow) var(--spring)}
+.solid:hover .i{transform:rotate(40deg)}
+.h-title{font-size:17px;font-weight:700;letter-spacing:-.1px}
+.cap{font-size:12px;color:var(--text3)}
+.muted{color:var(--text2)}
+.st{animation:rise calc(380ms*var(--m)) var(--ease) both;animation-delay:calc(var(--i,0)*45ms*var(--m))}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.leaving{animation:leave calc(120ms*var(--m)) ease-in both}
+@keyframes leave{to{opacity:0;transform:translateY(-6px)}}
+.no-anim .st{animation:none}
+
+/* ---------- HOME ---------- */
+.hero{position:absolute;left:20px;top:20px;width:1176px;height:372px;border-radius:14px;overflow:hidden;background:var(--window)}
+.hero .art{position:absolute;inset:0;background-size:cover;background-position:center;transform:scale(1);transition:opacity calc(420ms*var(--m)) var(--ease)}
+.hero .art.enter{animation:kenburns calc(1400ms*var(--m)) var(--ease) both}
+@keyframes kenburns{from{transform:scale(1.06)}to{transform:scale(1)}}
+.hero .scrim{position:absolute;inset:0;background:linear-gradient(90deg,rgba(9,10,13,.9),rgba(9,10,13,.45) 50%,rgba(9,10,13,.05)),linear-gradient(180deg,rgba(9,10,13,0) 48%,rgba(9,10,13,.75))}
+.hero .info{position:absolute;left:36px;bottom:36px;display:flex;flex-direction:column;gap:10px}
+.hero .lab{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:500;color:#D7DCE3}
+.hero .lab img{width:20px;height:20px;object-fit:contain}
+.hero .name{font-size:40px;font-weight:700;letter-spacing:-.8px;line-height:1;text-shadow:0 1px 6px rgba(0,0,0,.5)}
+.hero .meta{display:flex;gap:16px;font-size:12px;font-weight:500;color:#E3E7EC}
+.hero .meta span{display:flex;align-items:center;gap:6px}
+.hero .meta img{width:16px;height:16px;object-fit:contain;border-radius:3px}
+.hero .meta .i{--s:15px;color:#C9CED6}
+.swapping .name,.swapping .meta{animation:textswap calc(360ms*var(--m)) var(--ease) both}
+@keyframes textswap{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:none}}
+.dock{position:absolute;right:36px;bottom:36px;display:flex;gap:10px;align-items:center}
+
+/* launch button (the user's two-line design) */
+.launch{position:relative;display:flex;height:48px;width:244px;border-radius:11px;overflow:hidden;color:#fff;
+  background:#38D374 url(img/texture.jpg) center/cover;background-blend-mode:normal;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.38),inset 0 1px 0 rgba(255,255,255,.25),0 3px 0 rgba(11,58,28,.55),0 6px 14px rgba(0,0,0,.3);
+  transition:transform var(--fast) var(--ease),box-shadow var(--fast),filter var(--fast)}
+.launch::before{content:"";position:absolute;inset:0;background:#38D374;opacity:.86;pointer-events:none}
+.launch>*{position:relative}
+.launch .main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+.launch .big{font-size:18px;font-weight:800;letter-spacing:.3px;line-height:1.15;text-shadow:0 2px 0 rgba(30,138,71,.9)}
+.launch .sub{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:#F2FFF6}
+.launch .sub img{width:14px;height:14px;object-fit:contain;border-radius:3px}
+.launch .sub .bird{width:12px;height:12px}
+.launch .chev{width:40px;display:grid;place-items:center;background:rgba(0,0,0,.08);box-shadow:inset 1px 0 0 rgba(255,255,255,.28)}
+.launch .chev .i{--s:18px;stroke-width:2.5;transition:transform var(--base) var(--ease)}
+.launch .chev[aria-expanded="true"] .i{transform:rotate(180deg)}
+.launch:hover{filter:brightness(1.05);transform:translateY(-1px)}
+.launch .main:active{transform:translateY(1px)}
+.launch .shine{position:absolute;inset:0;background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.28) 50%,transparent 65%);transform:translateX(-120%);pointer-events:none}
+.launch:hover .shine{transform:translateX(120%);transition:transform calc(800ms*var(--m)) var(--ease)}
+.launch .prog{position:absolute;left:0;bottom:0;height:3px;width:0;background:rgba(255,255,255,.9);border-radius:0 2px 2px 0}
+.launch.starting .prog{animation:prog calc(2200ms*var(--m)) var(--emph) forwards}
+@keyframes prog{to{width:100%}}
+.launch.starting .big{animation:pulse calc(900ms*var(--m)) ease-in-out infinite}
+@keyframes pulse{50%{opacity:.75}}
+.modemenu{position:absolute;width:272px;padding:6px;border-radius:12px;background:var(--surface);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 16px 40px rgba(0,0,0,.5);transform-origin:top right;animation:pop calc(160ms*var(--m)) var(--ease) both;z-index:20}
+@keyframes pop{from{opacity:0;transform:translateY(-4px) scale(.96)}to{opacity:1;transform:none}}
+.modemenu .hd{padding:6px 10px 4px;font-size:12px;font-weight:500;color:var(--text3)}
+.mopt{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border-radius:8px;text-align:left;transition:background var(--fast)}
+.mopt:hover,.mopt.on{background:var(--hover)}
+.mopt img{width:24px;height:24px;object-fit:contain;border-radius:5px}
+.mopt b{display:block;font-size:13px;font-weight:600}.mopt small{display:block;font-size:12px;color:var(--text3)}
+.mopt .ck{margin-left:auto;color:var(--accent-text);opacity:0}.mopt.on .ck{opacity:1}
+
+.switcher{position:absolute;left:20px;top:408px;display:flex;gap:10px}
+.tile{display:flex;align-items:center;gap:10px;padding:8px 16px 8px 8px;border-radius:10px;background:var(--surface);text-align:left;transition:background var(--base),transform var(--fast) var(--ease),box-shadow var(--base)}
+.tile:hover{background:var(--hover)}
+.tile:active{transform:scale(.98)}
+.tile.on{background:var(--control);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14),0 2px 4px rgba(0,0,0,.2)}
+.tile img{width:36px;height:36px;border-radius:7px;object-fit:cover}
+.tile b{display:block;font-size:13px;font-weight:600}.tile small{display:block;font-size:12px;color:var(--text3)}
+.tile:not(.on) b{color:var(--text2)}
+.tile.new{background:none;box-shadow:inset 0 0 0 1px var(--divider);color:var(--text2);font-weight:600;font-size:13px;padding:8px 16px 8px 12px}
+
+.sec-h{position:absolute;display:flex;align-items:center;justify-content:space-between}
+.link{display:flex;align-items:center;gap:2px;font-size:12px;font-weight:500;color:var(--text2);transition:color var(--fast)}
+.link:hover{color:var(--text)}.link .i{--s:14px;transition:transform var(--fast) var(--ease)}.link:hover .i{transform:translateX(2px)}
+.recent{position:absolute;left:15px;top:517px;display:flex;gap:6px}
+.rcard{width:256px;height:209px;border-radius:12px;background:var(--window);padding:5px;transition:transform var(--base) var(--ease),box-shadow var(--base)}
+.rcard:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(0,0,0,.4)}
+.rcard .im{height:140px;border-radius:9px;overflow:hidden}
+.rcard .im div{width:100%;height:100%;background-size:cover;background-position:center;transition:transform calc(700ms*var(--m)) var(--ease)}
+.rcard:hover .im div{transform:scale(1.05)}
+.rcard .row{display:flex;align-items:center;gap:10px;margin-top:9px}
+.rcard .row img{width:36px;height:36px;object-fit:contain;border-radius:8px}
+.rcard .row b{display:block;font-size:13px;font-weight:600}.rcard .row small{display:block;font-size:12px;color:var(--text3)}
+.ghost{margin-left:auto;width:36px;height:36px;border-radius:8px;display:grid;place-items:center;color:var(--text2);transition:background var(--fast),color var(--fast)}
+.ghost:hover{background:var(--hover);color:var(--text)}
+.news{position:absolute;left:820px;top:522px;width:376px;display:flex;flex-direction:column}
+.nrow{display:flex;align-items:center;gap:14px;padding:10px 4px 10px 0;border-bottom:1px solid var(--divider);text-align:left;color:var(--text3)}
+.nrow:last-child{border-bottom:0}
+.nrow .th{width:96px;height:52px;border-radius:8px;background-size:cover;background-position:center;flex:none}
+.nrow b{display:block;font-size:13px;font-weight:600;color:var(--text)}.nrow small{font-size:12px}
+.nrow .i{margin-left:auto;transition:transform var(--fast) var(--ease)}.nrow:hover .i{transform:translateX(3px);color:var(--text2)}
+
+/* ---------- INSTALLATIONS ---------- */
+.lib{position:absolute;left:20px;top:20px;width:288px;display:flex;flex-direction:column;gap:12px}
+.lib .hd{display:flex;align-items:center;justify-content:space-between}
+.sq{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;background:var(--control);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
+.search{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:10px;background:var(--surface);color:var(--text3);font-size:13px}
+.litem{display:flex;align-items:center;gap:12px;padding:8px 10px 8px 8px;border-radius:10px;transition:background var(--fast)}
+.litem:hover{background:var(--surface)}
+.litem.on{background:var(--control);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+.litem img{width:44px;height:44px;border-radius:8px;object-fit:cover}
+.litem b{display:block;font-size:13px;font-weight:600}.litem small{font-size:12px;color:var(--text3)}
+.detail{position:absolute;left:324px;top:20px;width:872px}
+.dhead{position:relative;height:232px;border-radius:14px;overflow:hidden}
+.dhead .art{position:absolute;inset:0;background:url(img/hypixel.png) center/cover}
+.dhead .scrim{position:absolute;inset:0;background:linear-gradient(90deg,rgba(9,10,13,.88),rgba(9,10,13,.35) 60%,rgba(9,10,13,.1))}
+.dhead .nm{position:absolute;left:28px;bottom:24px}
+.dhead .nm div{font-size:34px;font-weight:700;letter-spacing:-.6px}
+.dhead .nm small{font-size:12px;color:#E3E7EC}
+.plain{display:flex;align-items:center;justify-content:center;width:160px;height:40px;border-radius:10px;font-size:15px;font-weight:800;letter-spacing:.2px;color:#fff;text-shadow:0 1.5px 0 rgba(30,138,71,.9);background:linear-gradient(rgba(56,211,116,.86),rgba(56,211,116,.86)),url(img/texture.jpg) center/cover;box-shadow:inset 0 0 0 1px rgba(255,255,255,.38),0 3px 0 rgba(11,58,28,.55);transition:transform var(--fast) var(--ease),filter var(--fast)}
+.plain:hover{transform:translateY(-1px);filter:brightness(1.05)}
+.dhead .dk{position:absolute;right:24px;bottom:24px;display:flex;gap:8px}
+.dhead .dk .solid{width:40px;height:40px}
+.tabs{position:relative;display:inline-flex;gap:4px;margin-top:16px}
+.tabpill{position:absolute;left:0;top:0;height:32px;border-radius:7px;background:var(--control);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);transition:transform calc(320ms*var(--m)) var(--spring),width calc(320ms*var(--m)) var(--spring)}
+.tab{position:relative;height:32px;padding:0 12px;border-radius:7px;font-size:12px;font-weight:500;color:var(--text2);display:flex;align-items:center;gap:6px;transition:color var(--fast)}
+.tab.on{color:var(--text)}
+.tab .i{--s:14px}
+.tabbody{margin-top:20px;display:grid;grid-template-columns:528px 324px;gap:20px}
+.group{display:flex;flex-direction:column;gap:8px}
+.group>.cap{font-weight:500}
+.rows{background:var(--surface);border-radius:12px;padding:0 16px}
+.r{display:flex;align-items:center;gap:16px;padding:14px 0;border-bottom:1px solid var(--divider)}
+.r:last-child{border-bottom:0}
+.r .t{flex:1;min-width:0}.r .t b{display:block;font-size:13px;font-weight:600}.r .t small{font-size:12px;color:var(--text3)}
+.sel{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px 0 12px;border-radius:8px;background:var(--hover);font-size:13px;font-weight:600;min-width:130px;justify-content:space-between}
+
+/* ---------- EXPLORE ---------- */
+.ex-h{position:absolute;left:20px;top:20px;right:20px;display:flex;align-items:center;justify-content:space-between}
+.ex-h h2,.sv-h h2{margin:0;font-size:22px;font-weight:700;letter-spacing:-.2px}
+.target{display:flex;align-items:center;gap:10px;padding:6px 12px 6px 6px;border-radius:10px;background:var(--surface)}
+.target .ib{width:28px;height:28px;border-radius:6px;background:var(--hover);display:grid;place-items:center;color:var(--text2)}
+.target small{display:block;font-size:11px;color:var(--text3)}.target b{font-size:13px}
+.ex-bar{position:absolute;left:20px;top:72px;right:20px;display:flex;gap:8px}
+.seg{display:flex;gap:2px;padding:3px;border-radius:9px;background:var(--surface)}
+.seg span{padding:7px 12px;border-radius:7px;font-size:12px;font-weight:500;color:var(--text2)}
+.seg span.on{background:var(--control);color:var(--text);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+.ex-bar .search{flex:1}
+.grid{position:absolute;left:20px;top:128px;right:20px;display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+.mod{display:flex;gap:16px;padding:16px;border-radius:12px;background:var(--surface);transition:transform var(--base) var(--ease),background var(--base),box-shadow var(--base)}
+.mod:hover{background:var(--hover);transform:translateY(-2px);box-shadow:0 10px 24px rgba(0,0,0,.35)}
+.mod img{width:64px;height:64px;border-radius:12px;image-rendering:auto;object-fit:cover;transition:transform var(--slow) var(--spring)}
+.mod:hover img{transform:scale(1.06) rotate(-2deg)}
+.mod .b{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.mod .b b{font-size:15px;font-weight:600}.mod .b b span{font-size:12px;font-weight:400;color:var(--text3);margin-left:6px}
+.mod .b p{margin:0;font-size:13px;color:var(--text2)}
+.mod .f{display:flex;align-items:center;gap:14px;margin-top:6px;font-size:12px;color:var(--text3)}
+.mod .f .btn{margin-left:auto}
+.mod .f span{display:flex;align-items:center;gap:5px}.mod .f .i{--s:13px}
+
+/* ---------- SERVERS ---------- */
+.sv-h{position:absolute;left:20px;top:20px;right:20px;display:flex;align-items:center;gap:8px}
+.sv-h h2{flex:1}
+.banner{position:absolute;left:20px;top:72px;width:1176px;height:220px;border-radius:14px;overflow:hidden}
+.banner .art{position:absolute;inset:0;background:url(img/hypixel.png) center/cover;transition:transform calc(900ms*var(--m)) var(--ease)}
+.banner:hover .art{transform:scale(1.03)}
+.banner .scrim{position:absolute;inset:0;background:linear-gradient(90deg,rgba(9,10,13,.9),rgba(9,10,13,.4) 55%,rgba(9,10,13,.05))}
+.banner .in{position:absolute;left:28px;bottom:28px;display:flex;align-items:center;gap:16px}
+.banner .in img{width:64px;height:64px;object-fit:contain}
+.banner .in div b{display:block;font-size:28px;font-weight:700;letter-spacing:-.5px}.banner .in small{font-size:12px;color:#E3E7EC}
+.banner .dk{position:absolute;right:28px;bottom:28px;display:flex;gap:8px}
+.banner .dk .solid{width:40px;height:40px}
+.table{position:absolute;left:20px;top:348px;width:1176px}
+.trow{display:grid;grid-template-columns:520px 150px 120px 180px 1fr;align-items:center;padding:10px 12px;border-radius:10px;font-size:13px;color:var(--text2);transition:background var(--fast)}
+.trow:not(.th):hover{background:var(--surface)}
+.trow.th{font-size:12px;color:var(--text3);border-bottom:1px solid var(--divider);border-radius:0}
+.trow .nm{display:flex;align-items:center;gap:12px}.trow .nm img{width:40px;height:40px;object-fit:contain;border-radius:8px}
+.trow .nm b{display:block;color:var(--text);font-weight:600}.trow .nm small{font-size:12px;color:var(--text3)}
+.trow .act{display:flex;justify-content:flex-end}
+
+/* ---------- SETTINGS ---------- */
+.cats{position:absolute;left:20px;top:20px;width:232px;display:flex;flex-direction:column;gap:4px}
+.cats h2{margin:0 0 12px;font-size:22px;font-weight:700}
+.cat{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;color:var(--text2);font-weight:600;font-size:13px;position:relative;z-index:1}
+.cat.on{color:var(--text)}
+.catpill{position:absolute;left:0;width:232px;height:38px;border-radius:9px;background:var(--control);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);transition:transform calc(320ms*var(--m)) var(--spring)}
+.vdiv{position:absolute;left:272px;top:20px;width:1px;height:716px;background:var(--divider)}
+.sbody{position:absolute;left:304px;top:20px;width:720px;display:flex;flex-direction:column;gap:24px}
+.sbody h2{margin:0;font-size:22px;font-weight:700}
+.tg{width:34px;height:20px;border-radius:10px;background:var(--hover);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);position:relative;flex:none;transition:background var(--base)}
+.tg::after{content:"";position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform calc(260ms*var(--m)) var(--spring),width var(--fast)}
+.tg[aria-checked="true"]{background:var(--accent)}
+.tg[aria-checked="true"]::after{transform:translateX(14px)}
+.tg:active::after{width:18px}
+
+/* ---------- SWEEP ---------- */
+.sweep{position:absolute;inset:0;pointer-events:none;z-index:50;overflow:hidden;border-radius:12px}
+.track{position:absolute;left:50%;top:50%;width:4200px;height:2200px;margin:-1100px 0 0 -2100px;transform:rotate(-31.9deg)}
+.cars{position:absolute;top:0;bottom:0;left:0;display:flex;will-change:transform}
+.car{height:100%;flex:none}
+.car.c1{width:70px;background:#3A3D44}
+.car.c2{width:26px;background:#24262C}
+.car.body{width:1700px;background:var(--window);position:relative}
+.car.c3{width:40px;background:#1C1D22}
+.mark{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(31.9deg);display:flex;flex-direction:column;align-items:center;gap:12px}
+.mark img{width:64px;height:64px;filter:drop-shadow(0 4px 18px rgba(0,0,0,.6))}
+.mark span{font-size:11px;font-weight:600;letter-spacing:4px;color:var(--text2)}
+.trail{position:absolute;inset:0;display:grid;place-items:center}
+.trail img{position:absolute;width:64px;height:64px;opacity:.12}
+
+/* ---------- controls ---------- */
+.controls{display:flex;flex-wrap:wrap;gap:12px 28px;align-items:center;padding:16px 18px;border-radius:12px;background:#111215;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+.ctl{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text2)}
+.ctl .seg span{cursor:pointer}
+.ctl .seg span:focus-visible{outline:2px solid #B9C3CF}
+.ctl .hint{font-size:12px;color:var(--text3)}
+.spec{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.spec article{padding:14px 16px;border-radius:12px;background:#111215;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);display:flex;flex-direction:column;gap:6px;min-width:0}
+.spec h3{margin:0;font-size:13px;font-weight:600}
+.spec p{margin:0;font-size:12.5px;line-height:1.55;color:var(--text2)}
+.spec code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#C9D3DE;font-variant-numeric:tabular-nums}
+.toast{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);padding:10px 14px;border-radius:10px;background:var(--surface);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 12px 30px rgba(0,0,0,.45);font-size:12px;color:var(--text2);z-index:60;animation:toast calc(240ms*var(--m)) var(--ease) both}
+@keyframes toast{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+
+.reduced *{animation-duration:1ms!important;animation-delay:0ms!important;transition-duration:1ms!important}
+@media (prefers-reduced-motion: reduce){.win *{animation-duration:1ms!important;animation-delay:0ms!important;transition-duration:1ms!important}}
+</style>
+
+<div class="wrap">
+  <header class="intro">
+    <h1>Kestrel Motion Lab</h1>
+    <p>Click through the launcher to feel the motion. The sidebar uses the corner-to-corner sweep between sections; tabs, menus and cards use quick, quiet motion. Try the controls under the window to compare.</p>
+  </header>
+
+  <div class="stage" id="stage">
+    <div class="win" id="win">
+      <div class="tb">
+        <div class="brand"><img src="img/bird.svg" alt="">KESTREL<svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div>
+        <div class="navb"><svg class="i" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg><svg class="i fwd" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg><span class="crumb" id="crumb">Home</span></div>
+        <div class="right">
+          <div class="dl"><svg class="i" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>No downloads</div>
+          <div class="wc"><span><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span><svg class="i" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/></svg></span><span><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span></div>
+        </div>
+      </div>
+
+      <nav class="rail" aria-label="Sections">
+        <div class="railpill" id="railpill"></div>
+        <div class="top">
+          <button class="rb on" data-page="home" aria-label="Home"><svg class="i" viewBox="0 0 24 24"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
+          <button class="rb" data-page="inst" aria-label="Installations"><svg class="i" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></button>
+          <button class="rb" data-page="explore" aria-label="Explore"><svg class="i" viewBox="0 0 24 24"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/></svg></button>
+          <button class="rb" data-page="servers" aria-label="Servers"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></button>
+        </div>
+        <div class="raildiv"></div>
+        <div class="bot">
+          <button class="rb av" aria-label="Account"><img src="img/pfp.png" alt=""></button>
+          <button class="rb" data-page="settings" aria-label="Settings"><svg class="i" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
+      </nav>
+
+      <div class="panel" id="panel">
+        <!-- HOME -->
+        <section class="page" id="p-home">
+          <div class="hero st" style="--i:0">
+            <div class="art" id="heroArt" style="background-image:url(img/hypixel.png)"></div>
+            <div class="scrim"></div>
+            <div class="info" id="heroInfo">
+              <div class="lab"><img id="heroIcon" src="img/hypixel-logo.png" alt="">Selected installation</div>
+              <div class="name" id="heroName">Hypixel</div>
+              <div class="meta" id="heroMeta"><span><img src="img/mc.png" alt="">Minecraft 1.8.9</span><span><img id="metaModeIcon" src="img/optifine.png" alt=""><em id="metaMode" style="font-style:normal">OptiFine</em></span><span><svg class="i" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>3 GB memory</span></div>
+            </div>
+            <div class="dock">
+              <button class="solid" aria-label="Game settings"><svg class="i" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+              <div class="launch" id="launch">
+                <span class="shine"></span>
+                <button class="main" id="launchMain" aria-label="Launch game">
+                  <span class="big" id="launchBig">LAUNCH GAME</span>
+                  <span class="sub"><img class="bird" src="img/bird.svg" alt=""><span id="launchVer">Kestrel 1.8.9 with</span><img id="launchModeIcon" src="img/optifine.png" alt=""><span id="launchMode">OptiFine</span></span>
+                </button>
+                <button class="chev" id="chev" aria-label="Choose launch mode" aria-expanded="false"><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+                <span class="prog"></span>
+              </div>
+            </div>
+          </div>
+          <div class="switcher st" style="--i:1" id="switcher">
+            <button class="tile on" data-inst="0"><img src="img/hypixel.png" alt=""><span><b>Hypixel</b><small>1.8.9 · OptiFine</small></span></button>
+            <button class="tile" data-inst="1"><img src="img/cave.png" alt=""><span><b>Vanilla</b><small>1.8.9 · Standard</small></span></button>
+            <button class="tile" data-inst="2"><img src="img/complementary.jpg" alt=""><span><b>Shader showcase</b><small>1.8.9 · OptiFine</small></span></button>
+            <button class="tile new"><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg>New installation</button>
+          </div>
+          <div class="sec-h st" style="--i:2;left:20px;top:488px;width:770px"><span class="h-title">Jump back in</span><button class="link">View all<svg class="i" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button></div>
+          <div class="recent">
+            <div class="rcard st" style="--i:3"><div class="im"><div style="background-image:url(img/hypixel.png)"></div></div><div class="row"><img src="img/hypixel-logo.png" alt=""><span><b>Hypixel</b><small>mc.hypixel.net · 1.8.9</small></span><button class="ghost" aria-label="Play"><svg class="i" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></svg></button></div></div>
+            <div class="rcard st" style="--i:4"><div class="im"><div style="background-image:url(img/bsl.jpg)"></div></div><div class="row"><img src="img/aternos-logo.png" alt=""><span><b>Aternos Server</b><small>Aternos.Server.IP · 1.8.9</small></span><button class="ghost" aria-label="Play"><svg class="i" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></svg></button></div></div>
+            <div class="rcard st" style="--i:5"><div class="im"><div style="background-image:url(img/complementary.jpg)"></div></div><div class="row"><img src="img/mc.png" alt=""><span><b>New World</b><small>Singleplayer · 1.8.9</small></span><button class="ghost" aria-label="Play"><svg class="i" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></svg></button></div></div>
+          </div>
+          <div class="sec-h st" style="--i:3;left:820px;top:488px;width:376px"><span class="h-title">What's new</span></div>
+          <div class="news st" style="--i:4">
+            <button class="nrow"><span class="th" style="background-image:url(img/complementary.jpg)"></span><span><b>Made to feel like yours</b><small>Design update · Oct 21</small></span><svg class="i" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button>
+            <button class="nrow"><span class="th" style="background-image:url(img/bsl.jpg)"></span><span><b>Mods from Modrinth</b><small>Coming soon</small></span><svg class="i" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button>
+            <button class="nrow"><span class="th" style="background-image:url(img/cave.png)"></span><span><b>Inside the client</b><small>Up next</small></span><svg class="i" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button>
+          </div>
+        </section>
+
+        <!-- INSTALLATIONS -->
+        <section class="page" id="p-inst" hidden>
+          <div class="lib st" style="--i:0">
+            <div class="hd"><span class="h-title">Installations</span><span class="sq"><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span></div>
+            <div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>Search installations</div>
+            <div class="litem on"><img src="img/hypixel.png" alt=""><span><b>Hypixel</b><small>1.8.9 · OptiFine</small></span></div>
+            <div class="litem"><img src="img/cave.png" alt=""><span><b>Vanilla</b><small>1.8.9 · Standard</small></span></div>
+            <div class="litem"><img src="img/complementary.jpg" alt=""><span><b>Shader showcase</b><small>1.8.9 · OptiFine</small></span></div>
+          </div>
+          <div class="detail">
+            <div class="dhead st" style="--i:1"><div class="art"></div><div class="scrim"></div><div class="nm"><div>Hypixel</div><small>1.8.9 · OptiFine · Last played: never</small></div>
+              <div class="dk"><button class="solid" aria-label="Open folder"><svg class="i" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg></button><button class="plain">LAUNCH GAME</button></div></div>
+            <div class="tabs st" style="--i:2" id="tabs"><span class="tabpill" id="tabpill"></span>
+              <button class="tab on">Overview</button><button class="tab">Content</button><button class="tab">Screenshots</button><button class="tab">Settings</button></div>
+            <div class="tabbody" id="tabbody"></div>
+          </div>
+        </section>
+
+        <!-- EXPLORE -->
+        <section class="page" id="p-explore" hidden>
+          <div class="ex-h st" style="--i:0"><h2>Explore</h2><div class="target"><span class="ib"><svg class="i" viewBox="0 0 24 24"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg></span><span><small>Installing to</small><b>Any installation</b></span><svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div></div>
+          <div class="ex-bar st" style="--i:1"><div class="seg"><span class="on">Mods</span><span>Resource packs</span><span>Shaders</span><span>Modpacks</span></div><div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>Search Modrinth</div></div>
+          <div class="grid" id="modgrid"></div>
+        </section>
+
+        <!-- SERVERS -->
+        <section class="page" id="p-servers" hidden>
+          <div class="sv-h st" style="--i:0"><h2>Servers</h2><div class="search" style="width:280px"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>Search servers</div><button class="btn green">+ Add server</button></div>
+          <div class="banner st" style="--i:1"><div class="art"></div><div class="scrim"></div><div class="in"><img src="img/hypixel-logo.png" alt=""><div><b>Hypixel</b><small>mc.hypixel.net · Status not checked</small></div></div>
+            <div class="dk"><button class="solid" aria-label="Copy address"><svg class="i" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></button><button class="plain">PLAY HYPIXEL</button></div></div>
+          <div class="table">
+            <div class="h-title st" style="--i:2;margin:-32px 0 12px">Your servers</div>
+            <div class="trow th st" style="--i:2"><span>Server</span><span>Players</span><span>Ping</span><span>Version</span><span></span></div>
+            <div class="trow st" style="--i:3"><span class="nm"><img src="img/hypixel-logo.png" alt=""><span><b>Hypixel</b><small>mc.hypixel.net</small></span></span><span>—</span><span>—</span><span>1.8 – 1.21</span><span class="act"><button class="btn">Play</button></span></div>
+            <div class="trow st" style="--i:4"><span class="nm"><img src="img/aternos-logo.png" alt=""><span><b>Aternos Server</b><small>Aternos.Server.IP</small></span></span><span>—</span><span>—</span><span>1.8.9</span><span class="act"><button class="btn">Play</button></span></div>
+          </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section class="page" id="p-settings" hidden>
+          <div class="cats st" style="--i:0" id="cats"><h2>Settings</h2><div style="position:relative;display:flex;flex-direction:column;gap:4px" id="catlist"><span class="catpill" id="catpill"></span></div></div>
+          <div class="vdiv"></div>
+          <div class="sbody" id="sbody"></div>
+        </section>
+
+        <div class="sweep" id="sweep" hidden>
+          <div class="track" id="track"><div class="cars" id="cars">
+            <div class="car c3"></div><div class="car body"><div class="mark"><img src="img/bird.svg" alt=""><span>KESTREL</span></div></div><div class="car c2"></div><div class="car c1"></div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls" role="group" aria-label="Motion controls">
+    <div class="ctl"><span>Section change</span><div class="seg" id="modeSeg"><span tabindex="0" data-v="sweep" class="on">Sweep</span><span tabindex="0" data-v="quick">Quick</span><span tabindex="0" data-v="none">None</span></div></div>
+    <div class="ctl"><span>Speed</span><div class="seg" id="speedSeg"><span tabindex="0" data-v="2">0.5×</span><span tabindex="0" data-v="1" class="on">1×</span><span tabindex="0" data-v="0.7">1.4×</span></div></div>
+    <div class="ctl"><span>Reduce motion</span><button class="tg" id="rm" role="switch" aria-checked="false" aria-label="Reduce motion"></button></div>
+    <div class="ctl"><span class="hint">Try: the sidebar, the installation tiles, the green button and its arrow, tabs, settings categories.</span></div>
+  </div>
+
+  <section class="spec" aria-label="Motion reference">
+    <article><h3>Section sweep</h3><p>Panel only, title bar and sidebar stay still. Wing-angled band crosses bottom-left → top-right (reverse when moving up the sidebar). Page swaps while covered. <code>640ms · enter 42% · covered 16% · exit 42%</code></p></article>
+    <article><h3>Quick page change</h3><p>Old page lifts away, new content rises in a short stagger. Used inside pages: tabs, project pages, settings. <code>out 120ms · in 380ms, 45ms stagger</code></p></article>
+    <article><h3>Sidebar &amp; tabs</h3><p>One highlight glides between items with a slight spring, so the eye follows where you went. <code>380ms · cubic-bezier(.3,1.35,.5,1)</code></p></article>
+    <article><h3>Installation switch</h3><p>Cover art cross-fades with a slow settle-in zoom; name and details slide up. <code>art 420ms + 1.4s drift · text 360ms</code></p></article>
+    <article><h3>Launch</h3><p>Lifts 1px on hover with a light sweep across the texture, presses down on click, then shows “STARTING…” with a thin progress line. Demo only: nothing launches here.</p></article>
+    <article><h3>Menus, cards, toggles</h3><p>Menus grow from the control that opened them (160ms). Cards lift 2–3px and their art zooms 5%. Toggles slide with a spring. Reduce motion turns everything into instant changes.</p></article>
+  </section>
+</div>
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const root = document.documentElement, win = $('#win'), stage = $('#stage');
+  let speed = 1, mode = 'sweep', reduced = matchMedia('(prefers-reduced-motion: reduce)').matches, busy = false;
+  const ms = v => Math.round(v * speed);
+  const icon = d => `<svg class="i" viewBox="0 0 24 24">${d}</svg>`;
+  const I = {
+    chevR:'<path d="m9 18 6-6-6-6"/>', dl:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
+    layers:'<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/>',
+    gamepad:'<line x1="6" x2="10" y1="11" y2="11"/><line x1="8" x2="8" y1="9" y2="13"/><line x1="15" x2="15.01" y1="12" y2="12"/><line x1="18" x2="18.01" y1="10" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"/>',
+    sliders:'<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>',
+    user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    drive:'<line x1="22" x2="2" y1="12" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+    bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+    msg:'<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>', lock:'<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    check:'<path d="M20 6 9 17l-5-5"/>', down:'<path d="m6 9 6 6 6-6"/>'
+  };
+
+  /* ---------- scale the 1280×800 window to the stage ---------- */
+  const fit = () => { const s = stage.clientWidth / 1280; win.style.transform = `scale(${s})`; };
+  new ResizeObserver(fit).observe(stage); fit();
+
+  /* ---------- pages ---------- */
+  const order = ['home','inst','explore','servers','settings'];
+  const crumbs = {home:'Home', inst:'Installations / Hypixel', explore:'Explore / Mods', servers:'Servers', settings:'Settings / General'};
+  let current = 'home';
+  const pill = $('#railpill');
+  const placePill = name => {
+    const btn = $(`.rb[data-page="${name}"]`);
+    const r = btn.getBoundingClientRect(), wr = win.getBoundingClientRect(), s = wr.width / 1280;
+    const y = (r.top - wr.top) / s - 36 - 24;
+    pill.style.transform = `translateY(${y}px)`;
+  };
+  $$('.rb[data-page]').forEach(b => b.addEventListener('click', () => go(b.dataset.page)));
+
+  function restagger(page){ $$('.st', page).forEach(el => { el.style.animation = 'none'; void el.offsetWidth; el.style.animation = ''; }); }
+  function show(name){
+    $$('.page').forEach(p => p.hidden = p.id !== 'p-' + name);
+    const page = $('#p-' + name); restagger(page);
+    if (name === 'inst') placeTabPill();
+    if (name === 'settings') placeCatPill();
+  }
+  function setCrumb(name){
+    const c = $('#crumb'); c.classList.add('swap');
+    setTimeout(() => { c.textContent = crumbs[name]; c.classList.remove('swap'); }, ms(120));
+  }
+  function go(name){
+    if (name === current || busy) return;
+    const dir = order.indexOf(name) > order.indexOf(current) ? 1 : -1;
+    $$('.rb[data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === name));
+    placePill(name); setCrumb(name);
+    const from = $('#p-' + current); current = name;
+    if (reduced || mode === 'none') { show(name); return; }
+    if (mode === 'quick') { busy = true; from.classList.add('leaving'); setTimeout(() => { from.classList.remove('leaving'); show(name); busy = false; }, ms(120)); return; }
+    sweep(dir, () => show(name));
+  }
+
+  /* ---------- the Kestrel sweep ---------- */
+  function sweep(dir, swap){
+    busy = true;
+    const sw = $('#sweep'), track = $('#track'), cars = $('#cars');
+    sw.hidden = false;
+    track.style.transform = `rotate(${dir > 0 ? -31.9 : 148.1}deg)`;
+    // Geometry along the travel axis (track centre = 2100). The panel's footprint on that
+    // axis is 1216*cos(a) + 756*sin(a) = ~1431px. The train enters right at the panel's corner
+    // and leaves right after the opposite corner, so the whole run is visible.
+    const w = cars.scrollWidth, lead = 40, body = 1700, half = 1431 / 2 + 8;
+    const startX = 2100 - half - w;                 // front of the train touches the first corner
+    const coverX = 2100 - body / 2 - lead - 30;     // dark body covers the whole panel
+    const endX = 2100 + half;                       // back of the train clears the last corner
+    const d = ms(640);
+    const anim = cars.animate([
+      { transform: `translateX(${startX}px)`, easing: 'cubic-bezier(.55,0,.3,1)' },
+      { transform: `translateX(${coverX}px)`, offset: .42, easing: 'linear' },
+      { transform: `translateX(${coverX + 60}px)`, offset: .58, easing: 'cubic-bezier(.7,0,.45,1)' },
+      { transform: `translateX(${endX}px)` }
+    ], { duration: d, fill: 'forwards' });
+    const mark = $('.mark', cars);
+    mark.style.transform = `translate(-50%,-50%) rotate(${dir > 0 ? 31.9 : -148.1}deg)`;
+    mark.animate([{opacity:0, filter:'blur(6px)'},{opacity:0, offset:.2},{opacity:1, filter:'blur(0)', offset:.42},{opacity:1, offset:.58},{opacity:0, filter:'blur(4px)', offset:.8},{opacity:0}], { duration: d, fill: 'forwards' });
+    setTimeout(swap, d * .5);
+    anim.onfinish = () => { sw.hidden = true; anim.cancel(); busy = false; };
+  }
+
+  /* ---------- home: installation switcher ---------- */
+  const insts = [
+    { name:'Hypixel', art:'img/hypixel.png', icon:'img/hypixel-logo.png', mode:'OptiFine' },
+    { name:'Vanilla', art:'img/cave.png', icon:'img/mc.png', mode:'Standard' },
+    { name:'Shader showcase', art:'img/complementary.jpg', icon:'img/mc.png', mode:'OptiFine' }
+  ];
+  $$('.tile[data-inst]').forEach(t => t.addEventListener('click', () => {
+    if (t.classList.contains('on')) return;
+    $$('.tile[data-inst]').forEach(x => x.classList.toggle('on', x === t));
+    const i = insts[+t.dataset.inst], hero = $('.hero'), art = $('#heroArt');
+    const next = art.cloneNode(); next.style.backgroundImage = `url(${i.art})`; next.style.opacity = 0;
+    art.after(next); requestAnimationFrame(() => { next.classList.add('enter'); next.style.opacity = 1; });
+    setTimeout(() => { art.remove(); next.id = 'heroArt'; }, ms(450));
+    $('#heroName').textContent = i.name; $('#heroIcon').src = i.icon; setMode(i.mode);
+    hero.classList.remove('swapping'); void hero.offsetWidth; hero.classList.add('swapping');
+  }));
+
+  /* ---------- launch + launch mode menu ---------- */
+  function setMode(m){
+    const src = m === 'OptiFine' ? 'img/optifine.png' : 'img/mc.png';
+    $('#launchMode').textContent = m; $('#launchModeIcon').src = src;
+    $('#metaMode').textContent = m; $('#metaModeIcon').src = src;
+  }
+  const chev = $('#chev');
+  chev.addEventListener('click', e => {
+    e.stopPropagation();
+    const open = $('.modemenu'); if (open) { open.remove(); chev.setAttribute('aria-expanded','false'); return; }
+    const cur = $('#launchMode').textContent;
+    const m = document.createElement('div'); m.className = 'modemenu'; m.setAttribute('role','menu');
+    m.innerHTML = `<div class="hd">Launch mode</div>` + [['OptiFine','Zoom, shaders, smoother frames','img/optifine.png'],['Standard','Plain Minecraft, nothing added','img/mc.png']]
+      .map(([n,d,s]) => `<button class="mopt ${n===cur?'on':''}" role="menuitem" data-m="${n}"><img src="${s}" alt=""><span><b>${n}</b><small>${d}</small></span><span class="ck">${icon(I.check)}</span></button>`).join('');
+    const hero = $('.hero'); hero.appendChild(m);
+    m.style.right = '36px'; m.style.top = (372 - 36 + 8) + 'px';
+    if (372 - 36 + 8 + 150 > 372) { m.style.top = 'auto'; m.style.bottom = (36 + 48 + 8) + 'px'; m.style.transformOrigin = 'bottom right'; }
+    chev.setAttribute('aria-expanded','true');
+    $$('.mopt', m).forEach(b => b.addEventListener('click', () => { setMode(b.dataset.m); m.remove(); chev.setAttribute('aria-expanded','false'); }));
+  });
+  document.addEventListener('click', () => { const o = $('.modemenu'); if (o) { o.remove(); chev.setAttribute('aria-expanded','false'); } });
+  const launch = $('#launch');
+  $('#launchMain').addEventListener('click', () => {
+    if (launch.classList.contains('starting')) return;
+    launch.classList.add('starting'); $('#launchBig').textContent = 'STARTING…';
+    setTimeout(() => {
+      launch.classList.remove('starting'); $('#launchBig').textContent = 'LAUNCH GAME';
+      toast('Demo only — no game was started.');
+    }, ms(2400));
+  });
+  function toast(text){ const t = document.createElement('div'); t.className = 'toast'; t.textContent = text; $('#panel').appendChild(t); setTimeout(() => t.remove(), 2600); }
+
+  /* ---------- installations tabs ---------- */
+  const tabBodies = {
+    Overview: `<div class="group st" style="--i:0"><span class="cap">Setup</span><div class="rows">
+      <div class="r"><span class="t"><b>Minecraft version</b><small>Kestrel supports 1.8.9 today.</small></span><span class="sel">1.8.9 ${icon(I.down)}</span></div>
+      <div class="r"><span class="t"><b>Launch mode</b><small>OptiFine adds zoom and shaders.</small></span><span class="sel">OptiFine ${icon(I.down)}</span></div>
+      <div class="r"><span class="t"><b>Memory</b><small>3 GB of 32 GB</small></span><span class="muted">Adjust</span></div></div></div>
+      <div class="group st" style="--i:1"><span class="cap">Content</span><div class="rows">
+      <div class="r"><span class="t"><b>Resource packs</b></span><span class="cap">1 installed</span></div>
+      <div class="r"><span class="t"><b>Shaders</b></span><span class="cap">1 installed</span></div>
+      <div class="r"><span class="t"><b>Worlds</b></span><span class="cap">None yet</span></div></div></div>`,
+    Content: `<div class="group st" style="--i:0;grid-column:1/-1"><span class="cap">Resource packs</span><div class="rows">
+      <div class="r"><img src="img/faithful.png" alt="" style="width:40px;height:40px;border-radius:8px;image-rendering:pixelated"><span class="t"><b>Faithful 32x</b><small>From Modrinth</small></span><button class="tg" role="switch" aria-checked="true" aria-label="Enabled"></button></div>
+      <div class="r"><img src="img/bsl.jpg" alt="" style="width:40px;height:40px;border-radius:8px;object-fit:cover"><span class="t"><b>Bedwars Blue 16x</b><small>Added from your files</small></span><button class="tg" role="switch" aria-checked="true" aria-label="Enabled"></button></div></div></div>`,
+    Screenshots: `<div class="st" style="--i:0;grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:16px">${['complementary.jpg','bsl.jpg','cave.png','hypixel.png','complementary.jpg','bsl.jpg'].map(s=>`<div style="aspect-ratio:16/9;border-radius:10px;background:url(img/${s}) center/cover"></div>`).join('')}</div>`,
+    Settings: `<div class="group st" style="--i:0;grid-column:1/-1"><span class="cap">Window</span><div class="rows">
+      <div class="r"><span class="t"><b>Start in fullscreen</b></span><button class="tg" role="switch" aria-checked="false" aria-label="Start in fullscreen"></button></div>
+      <div class="r"><span class="t"><b>Java runtime</b><small>Managed by Kestrel</small></span><span class="sel">Java 8 ${icon(I.down)}</span></div></div></div>`
+  };
+  const tabbody = $('#tabbody'), tabpill = $('#tabpill');
+  function placeTabPill(){ const on = $('.tab.on'); tabpill.style.width = on.offsetWidth + 'px'; tabpill.style.transform = `translateX(${on.offsetLeft}px)`; }
+  function setTab(t){
+    $$('.tab').forEach(b => b.classList.toggle('on', b === t)); placeTabPill();
+    tabbody.classList.add('leaving');
+    setTimeout(() => { tabbody.classList.remove('leaving'); tabbody.innerHTML = tabBodies[t.textContent]; bindToggles(tabbody); }, ms(110));
+  }
+  $$('.tab').forEach(t => t.addEventListener('click', () => setTab(t)));
+  tabbody.innerHTML = tabBodies.Overview;
+
+  /* ---------- explore grid ---------- */
+  const mods = [['Sodium','CaffeineMC','A modern rendering engine with big frame-rate gains.','sodium','251M'],['Iris Shaders','coderbot','Shader packs that work alongside Sodium.','iris','195M'],['Fabric API','modmuss50','The shared library most Fabric mods need.','fabric-api','286M'],['Entity Culling','tr7zw','Skips rendering things you can’t see.','entityculling','188M'],['Lithium','CaffeineMC','Faster game logic with no visual changes.','lithium','141M'],['Mod Menu','Prospector','A menu to browse and configure your mods.','modmenu','160M'],['Zoomify','isXander','A smooth, configurable zoom key.','zoomify','72M']];
+  $('#modgrid').innerHTML = mods.map((m,i) => `<div class="mod st" style="--i:${2+i}"><img src="img/${m[3]}.png" alt="" ${m[3]==='fabric-api'?'style="image-rendering:pixelated"':''}><div class="b"><b>${m[0]}<span>by ${m[1]}</span></b><p>${m[2]}</p><div class="f"><span>${icon(I.dl)}${m[4]}</span><span>${icon(I.layers)}Fabric</span><button class="btn green">Install</button></div></div></div>`).join('');
+
+  /* ---------- settings ---------- */
+  const cats = [['Game',I.gamepad],['General',I.sliders],['Account',I.user],['Storage',I.drive],['Notifications',I.bell],['Discord',I.msg],['Privacy',I.lock]];
+  const catlist = $('#catlist'), catpill = $('#catpill');
+  catlist.insertAdjacentHTML('beforeend', cats.map(([n,p]) => `<button class="cat ${n==='General'?'on':''}">${icon(p)}${n}</button>`).join(''));
+  function placeCatPill(){ const on = $('.cat.on'); catpill.style.transform = `translateY(${on.offsetTop}px)`; }
+  const sbody = $('#sbody');
+  const settingsBody = n => `<div class="st" style="--i:0"><h2>${n}</h2><p class="muted" style="margin:4px 0 0">${n==='General'?'How Kestrel looks and behaves.':'Settings for '+n.toLowerCase()+'.'}</p></div>
+    <div class="group st" style="--i:1"><span class="cap">Appearance</span><div class="rows">
+      <div class="r"><span class="t"><b>Reduce motion</b><small>Shorter transitions and no sweep.</small></span><button class="tg" role="switch" aria-checked="false" aria-label="Reduce motion setting"></button></div>
+      <div class="r"><span class="t"><b>Section transitions</b><small>The Kestrel sweep between sidebar sections.</small></span><button class="tg" role="switch" aria-checked="true" aria-label="Section transitions"></button></div></div></div>
+    <div class="group st" style="--i:2"><span class="cap">Sounds</span><div class="rows">
+      <div class="r"><span class="t"><b>Interface sounds</b><small>Only for Launch, finished downloads and errors.</small></span><button class="tg" role="switch" aria-checked="true" aria-label="Interface sounds"></button></div></div></div>`;
+  sbody.innerHTML = settingsBody('General');
+  $$('.cat').forEach(c => c.addEventListener('click', () => {
+    $$('.cat').forEach(x => x.classList.toggle('on', x === c)); placeCatPill();
+    sbody.classList.add('leaving');
+    setTimeout(() => { sbody.classList.remove('leaving'); sbody.innerHTML = settingsBody(c.textContent.trim()); bindToggles(sbody); }, ms(110));
+  }));
+
+  /* ---------- toggles ---------- */
+  function bindToggles(scope){ $$('.tg', scope).forEach(t => { if (t.id === 'rm' || t._b) return; t._b = 1; t.addEventListener('click', () => t.setAttribute('aria-checked', t.getAttribute('aria-checked') !== 'true')); }); }
+  bindToggles(document);
+
+  /* ---------- controls ---------- */
+  function segBind(id, fn){ $$('#'+id+' span').forEach(s => { const act = () => { $$('#'+id+' span').forEach(x => x.classList.toggle('on', x === s)); fn(s.dataset.v); }; s.addEventListener('click', act); s.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act(); } }); }); }
+  segBind('modeSeg', v => mode = v);
+  segBind('speedSeg', v => { speed = +v; root.style.setProperty('--m', v); });
+  const rm = $('#rm');
+  rm.setAttribute('aria-checked', reduced);
+  if (reduced) win.classList.add('reduced');
+  rm.addEventListener('click', () => { reduced = !reduced; rm.setAttribute('aria-checked', reduced); win.classList.toggle('reduced', reduced); });
+
+  requestAnimationFrame(() => { placePill('home'); });
+})();
+</script>

@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "kestrel-web",
+      "runtimeExecutable": "npm.cmd",
+      "runtimeArgs": ["run", "dev"],
+      "port": 1420
+    },
+    {
+      "name": "kestrel-site",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["website/serve.cjs", "4173"],
+      "port": 4173
+    }
+  ]
+}

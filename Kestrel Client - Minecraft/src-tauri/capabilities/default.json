@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "Window controls for Kestrel's custom title bar, app events, and opening the Launch Control window.",
+  "windows": ["main", "mission"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-focus",
+    "core:window:allow-show",
+    "core:webview:allow-create-webview-window",
+    "dialog:allow-open",
+    "dialog:allow-save"
+  ]
+}

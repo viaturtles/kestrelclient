@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy · Kestrel Launcher</title>
+  <meta name="description" content="What Kestrel Launcher stores, what it sends, and to whom." />
+  <meta name="theme-color" content="#0c0d0f" />
+  <link rel="icon" href="assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="logo" href="./"><img src="assets/kestrel.svg" alt="" />KESTREL</a>
+      <div class="nav-actions"><a class="btn btn-green" data-link="download" href="./#download">Download</a></div>
+    </div>
+  </header>
+  <main class="doc">
+    <div class="wrap">
+      <h1>Privacy</h1>
+      <div class="updated">Last updated October 21, 2026</div>
+
+      <p>Kestrel Launcher is a desktop app for playing Minecraft: Java Edition. It has no accounts of its own, no analytics and no ads. This page explains what it keeps on your PC and which services it talks to.</p>
+
+      <h2>What stays on your PC</h2>
+      <ul>
+        <li>Everything Kestrel saves lives in <code>%APPDATA%\Kestrel</code>: your installations, game files, mods, packs, worlds, screenshots, settings and logs.</li>
+        <li>If you sign in with Microsoft or Discord, Kestrel keeps the sign-in tokens in that folder, encrypted with Windows so only your Windows account can read them. Tokens are never written to logs.</li>
+        <li>Kestrel never sees your Microsoft or Discord password. Signing in happens on Microsoft's and Discord's own websites.</li>
+        <li>Deleting the folder or choosing Sign out removes this data.</li>
+      </ul>
+
+      <h2>Services Kestrel connects to</h2>
+      <ul>
+        <li><b>Mojang</b> (minecraft.net, mojang.com): the version list, game files, libraries, assets and Java.</li>
+        <li><b>Microsoft and Xbox Live</b>: only when you sign in, to prove you own Minecraft and get your username and skin.</li>
+        <li><b>Modrinth</b>: searching and downloading mods, resource packs and shaders, and checking your installed files for updates (by file hash).</li>
+        <li><b>Discord</b>: only if you sign in with Discord (Kestrel asks for your username and ID, nothing else), and to show your status through the Discord app on your PC if Rich Presence is on.</li>
+        <li><b>mc-heads.net</b>: to show your Minecraft head in the launcher, using your public Minecraft ID.</li>
+        <li><b>Minecraft servers</b> you add or join: to show players online and ping, the same way Minecraft does.</li>
+      </ul>
+      <p>Each of these services has its own privacy policy and sees the requests Kestrel makes, like any app would, including your IP address.</p>
+
+      <h2>This website</h2>
+      <p>This site is hosted on GitHub Pages and loads its font from Google Fonts. Both may log standard request details such as your IP address. The site itself uses no cookies and no tracking.</p>
+
+      <h2>Children</h2>
+      <p>Kestrel doesn't collect personal information from anyone. Signing in uses Microsoft's own account rules, including family settings for child accounts.</p>
+
+      <h2>Changes and contact</h2>
+      <p>If this page changes, the date at the top changes too. Questions? Ask in the <a data-link="discord" href="#">Kestrel Discord</a>.</p>
+
+      <p style="margin-top:48px;color:var(--text3);font-size:13px">Kestrel is not an official Minecraft product and is not approved by or associated with Mojang or Microsoft.</p>
+    </div>
+  </main>
+  <script src="site.js"></script>
+</body>
+</html>
