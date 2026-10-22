@@ -29,6 +29,17 @@ jobs:
         with:
           workspaces: Kestrel Client - Minecraft/src-tauri
       - run: npm ci
+      # The notes shown in Kestrel's "Update available" prompt and on the release page.
+      - id: notes
+        shell: bash
+        run: |
+          {
+            echo "body<<KESTREL_NOTES_EOF"
+            cat RELEASE_NOTES.md 2>/dev/null || echo "Bug fixes and improvements."
+            echo ""
+            echo "Windows may say \"Windows protected your PC\" the first time; choose More info, then Run anyway."
+            echo "KESTREL_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -39,6 +50,6 @@ jobs:
           projectPath: Kestrel Client - Minecraft
           tagName: ${{ github.ref_name }}
           releaseName: Kestrel ${{ github.ref_name }}
-          releaseBody: Download the setup .exe below, run it, and you're done. Windows may say "Windows protected your PC" because the installer isn't signed yet; choose More info, then Run anyway.
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false

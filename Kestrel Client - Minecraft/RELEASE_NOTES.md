@@ -1,0 +1,1 @@
+- The update window now shows the real release notes

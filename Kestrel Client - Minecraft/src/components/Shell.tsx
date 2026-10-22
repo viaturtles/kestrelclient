@@ -359,13 +359,14 @@ function UpdatePrompt({ update }: { update: Update }) {
   );
 }
 
-/** Windows notification (asks for permission the first time). */
-async function notifyWindows(title: string, body: string) {
+/** Windows notification (asks for permission the first time). Returns false if Windows won't allow it. */
+export async function notifyWindows(title: string, body: string): Promise<boolean> {
   try {
     let ok = await isPermissionGranted();
     if (!ok) ok = (await requestPermission()) === "granted";
     if (ok) sendNotification({ title, body });
-  } catch { /* notifications off: the title-bar button still shows the update */ }
+    return ok;
+  } catch { return false; /* notifications off: the title-bar button still shows the update */ }
 }
 
 export function signInDialog(app: ReturnType<typeof useApp>) {

@@ -231,8 +231,7 @@ function Notifications() {
       </Group>
       <Group title="Tell me about">
         <Row title="Finished downloads"><Toggle label="Finished downloads" checked={s.notifyDownloads} onChange={(v) => set({ notifyDownloads: v })} /></Row>
-        <Row title="Launcher updates"><Toggle label="Launcher updates" checked={s.notifyUpdates} onChange={(v) => set({ notifyUpdates: v })} /></Row>
-        <Row title="Errors while installing or launching"><Toggle label="Errors" checked={s.notifyErrors} onChange={(v) => set({ notifyErrors: v })} /></Row>
+        <Row title="Launcher updates"><Toggle label="Launcher updates" checked={s.notifyUpdates} onChange={(v) => set({ notifyUpdates: v })} /></Row>        <Row title="Errors while installing or launching"><Toggle label="Errors" checked={s.notifyErrors} onChange={(v) => set({ notifyErrors: v })} /></Row>
       </Group>
     </>
   );
