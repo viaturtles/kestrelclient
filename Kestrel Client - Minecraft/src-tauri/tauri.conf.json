@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Kestrel",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.kestrel.launcher",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost https://cdn.modrinth.com https://mc-heads.net https://cdn.discordapp.com; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src ipc: http://ipc.localhost",
+      "csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost https://cdn.modrinth.com https://mc-heads.net https://cdn.discordapp.com; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src ipc: http://ipc.localhost asset: http://asset.localhost",
       "assetProtocol": {
         "enable": true,
         "scope": ["$DATA/Kestrel/instances/**"]
@@ -33,6 +33,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis"],
     "publisher": "Kestrel",
     "shortDescription": "Kestrel Minecraft launcher",
@@ -46,6 +47,13 @@
         "displayLanguageSelector": false
       },
       "webviewInstallMode": { "type": "downloadBootstrapper" }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI4Rjg4RjY4N0Y1RDEzMDUKUldRRkUxMS9hSS80S0ZNRmt4ZCt4OWdxK01naHRodFFTeERCbTRyYXVMa0tJNWdKaS8zQWt5SkUK",
+      "endpoints": ["https://github.com/viaturtles/kestrelclient/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
     }
   }
 }

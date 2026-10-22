@@ -1,6 +1,6 @@
 [package]
 name = "kestrel-launcher"
-version = "0.1.0"
+version = "0.1.1"
 description = "Kestrel desktop launcher"
 edition = "2021"
 
@@ -27,6 +27,8 @@ md-5 = "0.10"
 discord-rich-presence = "1.1"
 url = "2"
 getrandom = "0.2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }

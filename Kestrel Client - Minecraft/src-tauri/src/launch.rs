@@ -13,6 +13,12 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 #[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchRequest {
+    /// Singleplayer world folder to open straight away (quick play agent).
+    #[serde(default)]
+    pub world: Option<String>,
+    /// Zip every world before starting, keeping the last 5 of each.
+    #[serde(default)]
+    pub backup_worlds: bool,
     pub instance_id: String,
     pub name: String,
     pub version: String,
@@ -100,6 +106,7 @@ pub async fn mission_snapshot(state: State<'_, AppState>) -> Res<Vec<MissionEven
 pub async fn launch_game(app: AppHandle, state: State<'_, AppState>, req: LaunchRequest) -> Res<()> {
     safe_id(&req.instance_id)?;
     if state.game.lock().await.is_some() { return Err("Minecraft is already running from Kestrel.".into()); }
+    *state.last_launch.lock().unwrap() = Some(req.clone());
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
         let st = app2.state::<AppState>();
@@ -110,6 +117,18 @@ pub async fn launch_game(app: AppHandle, state: State<'_, AppState>, req: Launch
     });
     Ok(())
 }
+
+/// Launches the last request again (from Launch Control after a crash), optionally without OptiFine.
+#[tauri::command]
+pub async fn relaunch_last(app: AppHandle, state: State<'_, AppState>, standard: bool) -> Res<()> {
+    let Some(mut req) = state.last_launch.lock().unwrap().clone() else { return Err("Nothing has been launched yet.".into()) };
+    if standard { req.mode = "Standard".into(); }
+    req.world = None;
+    req.backup_worlds = false;
+    launch_game(app, state, req).await
+}
+
+const AGENT: &[u8] = include_bytes!("../agent/kestrel-agent.jar");
 
 async fn run(app: &AppHandle, st: &AppState, req: LaunchRequest) -> Res<()> {
     m_reset(app, st, &format!("{} · Minecraft {}", req.name, req.version));
@@ -177,6 +196,28 @@ async fn run(app: &AppHandle, st: &AppState, req: LaunchRequest) -> Res<()> {
         "-Dminecraft.launcher.version=0.1.0".into(),
     ];
     jvm.extend(req.jvm_args.split_whitespace().filter(|a| a.starts_with("-X") || a.starts_with("-D")).map(String::from));
+    // Open a singleplayer world straight away (1.8.9 has no built-in option for this).
+    if let Some(world) = req.world.as_deref().filter(|w| !w.is_empty()) {
+        let folder = safe_file_name(world)?.to_string();
+        if game_dir.join("saves").join(&folder).join("level.dat").is_file() {
+            let path = data_dir().join("tools").join("kestrel-agent.jar");
+            std::fs::create_dir_all(path.parent().unwrap()).map_err(err("Quick play"))?;
+            if std::fs::read(&path).map(|b| b != AGENT).unwrap_or(true) { std::fs::write(&path, AGENT).map_err(err("Quick play"))?; }
+            use base64::Engine;
+            jvm.push(format!("-javaagent:{}={}", path.display(), base64::engine::general_purpose::STANDARD.encode(folder.as_bytes())));
+            m_log(app, st, "info", &format!("Will open the world \"{folder}\" after starting"));
+        } else {
+            m_log(app, st, "warn", &format!("The world \"{folder}\" wasn't found, so the game will open on the title screen."));
+        }
+    }
+    // Back up worlds first (setting), keeping the last 5 of each.
+    if req.backup_worlds {
+        let id = req.instance_id.clone();
+        let done = tokio::task::spawn_blocking(move || {
+            let mut n = 0; for w in crate::content::world_folders(&id) { if crate::content::backup_blocking(&id, &w, Some(5)).is_ok() { n += 1; } } n
+        }).await.unwrap_or(0);
+        if done > 0 { m_log(app, st, "info", &format!("Backed up {done} world{} before starting", if done == 1 { "" } else { "s" })); }
+    }
 
     // 4. Account: Microsoft if signed in, otherwise offline (singleplayer only).
     m_step(app, st, "account", "running", "Account", "Checking sign-in");

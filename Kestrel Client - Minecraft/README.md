@@ -34,7 +34,21 @@ Browser-only preview: `npm.cmd run dev` (desktop features show "Available in the
 
 ## Installer
 
-`npm.cmd run tauri build` produces `src-tauri\target\release\bundle\nsis\Kestrel_0.1.0_x64-setup.exe` (per-user install, no admin needed).
+`npm.cmd run tauri build` produces `src-tauri\target\release\bundle\nsis\Kestrel_<version>_x64-setup.exe` (per-user install, no admin needed).
+
+### Releases and auto-update
+
+Kestrel checks `releases/latest/download/latest.json` on GitHub a few seconds after it starts and offers "Update to x.y.z" in the title bar. Updates must be signed with the private key in `%USERPROFILE%\.tauri\kestrel.key` (never commit it; keep a backup, since losing it means existing installs can't receive updates).
+
+1. Bump the version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`.
+2. Commit, then push a tag `v<version>` (GitHub Desktop: History → right-click → Create Tag).
+3. The Release workflow builds and signs the installer (GitHub secret `TAURI_SIGNING_PRIVATE_KEY` = contents of the key file), uploads it with `latest.json`, and leaves a draft release. Publish it.
+
+Local signed builds: set `TAURI_SIGNING_PRIVATE_KEY` to the key file's contents and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to empty before `npm.cmd run tauri build`.
+
+### Quick play agent
+
+`src-tauri/agent/kestrel-agent.jar` (source in `agent/src`) opens a singleplayer world on start, since 1.8.9 has no launch option for it. Rebuild with JDK 8+: `javac --release 8`, then `jar cfm kestrel-agent.jar MANIFEST.MF -C out .`.
 
 ## Not yet
 

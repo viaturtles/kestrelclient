@@ -7,16 +7,20 @@ export type Installation = {
   id: string; name: string; version: string; mode: Mode; memoryGb: number; cover: string;
   javaPath: string | null; jvmArgs: string; width: number; height: number; fullscreen: boolean;
   createdAt: number; lastPlayed: number | null; optifine?: string | null;
+  /** Server to join automatically when launching (QOL "Join on launch"). */
+  autoJoin?: string | null;
+  /** Saved resource pack sets: name -> packs (top first). */
+  packProfiles?: { name: string; packs: string[] }[];
 };
 export type Server = { id: string; name: string; address: string };
-export type HistoryItem = { kind: "server" | "world"; name: string; detail: string; version: string; at: number; serverAddress?: string; installationId?: string; icon?: string };
+export type HistoryItem = { kind: "server" | "world"; name: string; detail: string; version: string; at: number; serverAddress?: string; installationId?: string; icon?: string; folder?: string };
 
 export type Settings = {
   reducedMotion: boolean; sectionTransitions: boolean; interfaceSounds: boolean; soundVolume: number;
   language: string; onGameStart: string; startOn: string; updateChannel: string; keepLogs: string;
   notifyMode: "always" | "background" | "never"; notifyDownloads: boolean; notifyUpdates: boolean; notifyErrors: boolean; notifySounds: boolean;
   discordPresence: boolean; discordShowServer: boolean; discordHideIdle: boolean; discordInLauncher: boolean; crashReports: boolean;
-  offlineName: string;
+  offlineName: string; backupBeforeLaunch: boolean;
   defaultMemoryGb: number; defaultWidth: number; defaultHeight: number; defaultFullscreen: boolean;
 };
 
@@ -30,7 +34,7 @@ export type Route =
   | { name: "updates" };
 
 export const SECTION_ORDER = ["home", "installations", "explore", "servers", "settings"] as const;
-export const sectionOf = (r: Route) => (r.name === "project" ? "explore" : r.name === "updates" ? "home" : r.name);
+export const sectionOf = (r: Route) => (r.name === "project" ? "explore" : r.name === "updates" || r.name === "servers" ? "home" : r.name);
 
 /** Newest Minecraft version Kestrel supports; new installations start here. */
 export const LATEST_VERSION = "1.8.9";
@@ -51,7 +55,7 @@ export const defaultSettings: Settings = {
   language: "English", onGameStart: "Minimise Kestrel", startOn: "Home", updateChannel: "Stable", keepLogs: "14 days",
   notifyMode: "background", notifyDownloads: true, notifyUpdates: true, notifyErrors: true, notifySounds: false,
   discordPresence: true, discordShowServer: false, discordHideIdle: true, discordInLauncher: true, crashReports: false,
-  offlineName: "Player",
+  offlineName: "Player", backupBeforeLaunch: false,
   defaultMemoryGb: 3, defaultWidth: 1280, defaultHeight: 720, defaultFullscreen: false,
 };
 
@@ -76,7 +80,8 @@ function load(): Saved {
     if (raw) {
       const s = JSON.parse(raw) as Partial<Saved>;
       const installations = s.installations?.length ? s.installations : fallback.installations;
-      return { settings: { ...fallback.settings, ...s.settings }, installations,
+      const settings = { ...fallback.settings, ...s.settings }; if (settings.onGameStart === "Close Kestrel") settings.onGameStart = "Hide Kestrel";
+      return { settings, installations,
         selectedId: installations.some((i) => i.id === s.selectedId) ? s.selectedId! : installations[0].id,
         servers: s.servers ?? fallback.servers, history: s.history ?? [] };
     }

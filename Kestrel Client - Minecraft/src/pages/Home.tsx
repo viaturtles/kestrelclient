@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Cpu, Play, Plus, Settings as Gear, UserPlus, Users } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Cpu, Play, Plus, RotateCcw, Settings as Gear, UserPlus, Users } from "lucide-react";
 import { COVERS, useApp, type HistoryItem, type Mode } from "../lib/store";
 import { launchInstallation } from "../lib/launch";
 import { api, inApp, onMission, type ServerStatus } from "../lib/api";
@@ -27,10 +27,23 @@ export function LaunchButton({ onLaunch }: { onLaunch: () => void }) {
         <button className="main" aria-label={`Launch ${inst.name}`} onClick={onLaunch}>
           <span className="big">{busy ? "PREPARING…" : "LAUNCH GAME"}</span>
         </button>
-        <button className="chev" aria-label="Choose launch mode" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}><ChevronDown size={18} strokeWidth={2.5} /></button>
+        <button className="chev" aria-label="Choose installation and launch mode" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}><ChevronDown size={18} strokeWidth={2.5} /></button>
       </div>
       {open && (
-        <div className="menu" role="menu" style={{ right: 0, bottom: 56, width: 272, transformOrigin: "bottom right" }}>
+        <div className="menu" role="menu" style={{ right: 0, bottom: 56, width: 292, transformOrigin: "bottom right", maxHeight: 520, overflowY: "auto" }}>
+          <div className="mh">Installation</div>
+          {app.installations.map((i) => (
+            <button key={i.id} role="menuitemradio" aria-checked={i.id === inst.id} className={"mi" + (i.id === inst.id ? " active" : "")} onClick={() => { app.selectInstallation(i.id); setOpen(false); }}>
+              <img src={(COVERS[i.cover] ?? COVERS.hypixel).src} alt="" style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 6 }} />
+              <span style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}><span>{i.name}</span><span className="t-cap" style={{ fontWeight: 400 }}>{i.version} · {i.mode}</span></span>
+              {i.id === inst.id && <Check size={16} className="check" />}
+            </button>
+          ))}
+          <button role="menuitem" className="mi" onClick={() => { setOpen(false); newInstallationDialog(app); }}>
+            <span style={{ width: 28, height: 28, display: "grid", placeItems: "center", borderRadius: 6, boxShadow: "inset 0 0 0 1px var(--divider)" }}><Plus size={15} /></span>
+            <span>New installation</span>
+          </button>
+          <div className="sep" />
           <div className="mh">Launch mode</div>
           {(["OptiFine", "Standard"] as Mode[]).map((m) => (
             <button key={m} role="menuitemradio" aria-checked={inst.mode === m} className={"mi" + (inst.mode === m ? " active" : "")} onClick={() => { app.updateInstallation(inst.id, { mode: m }); setOpen(false); }}>
@@ -131,15 +144,29 @@ export function Home() {
   useEffect(() => {
     if (!inApp) return;
     Promise.all(app.installations.map((i) => api.listWorlds(i.id).then((ws) => ws.map((w): HistoryItem => ({
-      kind: "world", name: w.name, detail: `Singleplayer · ${i.name}`, version: i.version, at: w.lastPlayed, installationId: i.id, icon: w.icon,
+      kind: "world", name: w.name, detail: `Singleplayer · ${i.name}`, version: i.version, at: w.lastPlayed, installationId: i.id, icon: w.icon, folder: w.folder,
     }))).catch(() => [] as HistoryItem[]))).then((all) => setWorlds(all.flat()));
   }, [app.installations.length, app.history.length]);
   const history = [...app.history.filter((h) => h.kind === "server"), ...worlds].sort((a, b) => b.at - a.at).slice(0, 4);
   const playItem = (h: HistoryItem) => {
     const target = app.installations.find((i) => i.id === h.installationId) ?? inst;
     if (target.id !== inst.id) app.selectInstallation(target.id);
-    launchInstallation(app, target, h.kind === "server" ? h.serverAddress ?? null : null);
+    if (h.kind === "server") launchInstallation(app, target, h.serverAddress ?? null);
+    else launchInstallation(app, target, null, h.folder ?? h.name);
   };
+  // Pick up where you left off: the last server played on this installation.
+  const lastServer = app.history.find((h) => h.kind === "server" && h.installationId === inst.id && h.serverAddress);
+  // Enter launches from Home (when you aren't typing or in a dialog).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || e.repeat || app.dialog) return;
+      const t = e.target as HTMLElement;
+      if (t && (t.closest("input, textarea, select, button, [role=menu]") || t.isContentEditable)) return;
+      e.preventDefault(); launchInstallation(app, inst);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [inst.id, app.dialog]);
 
   return (
     <div className="pad" style={{ display: "flex", flexDirection: "column", gap: 16, minHeight: "100%" }}>
@@ -156,6 +183,11 @@ export function Home() {
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}><img src={modeIcon(inst.mode)} alt="" style={{ width: 16, height: 16, borderRadius: 3 }} />{inst.mode}</span>
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Cpu size={15} color="#c9ced6" />{inst.memoryGb} GB memory</span>
           </div>
+          {lastServer && (
+            <button className="rejoin st" style={{ ["--i" as string]: 3 }} onClick={() => launchInstallation(app, inst, lastServer.serverAddress!)}>
+              <RotateCcw size={13} />Rejoin {lastServer.name}<span>· {ago(lastServer.at)}</span>
+            </button>
+          )}
         </div>
         <div style={{ position: "absolute", right: 36, bottom: 36, display: "flex", gap: 10, alignItems: "center" }}>
           <button className="ibtn solid" style={{ width: 48, height: 48, borderRadius: 10 }} aria-label="Installation settings" onClick={() => app.navigate({ name: "installations", id: inst.id, tab: "Settings" })}><Gear size={18} className="spin" /></button>
@@ -164,19 +196,6 @@ export function Home() {
       </section>
 
       <div className="home-grid">
-      <div className="st" style={{ gridArea: "inst", display: "flex", gap: 10, flexWrap: "wrap", alignContent: "flex-start", ["--i" as string]: 1 }}>
-        {app.installations.map((i) => {
-          const on = i.id === inst.id;
-          return (
-            <button key={i.id} onClick={() => app.selectInstallation(i.id)} aria-pressed={on} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px 8px 8px", borderRadius: 10, textAlign: "left", transition: "background var(--base)",
-              background: on ? "var(--control)" : "var(--surface)", boxShadow: on ? "inset 0 0 0 1px rgba(255,255,255,.14), 0 2px 4px rgba(0,0,0,.2)" : "none" }}>
-              <img src={(COVERS[i.cover] ?? COVERS.hypixel).src} alt="" style={{ width: 36, height: 36, borderRadius: 7, objectFit: "cover" }} />
-              <span><b className="t-strong" style={{ display: "block", color: on ? "var(--text)" : "var(--text2)" }}>{i.name}</b><span className="t-cap">{i.version} · {i.mode}</span></span>
-            </button>
-          );
-        })}
-        <button onClick={() => newInstallationDialog(app)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px 8px 12px", borderRadius: 10, color: "var(--text2)", fontWeight: 600, boxShadow: "inset 0 0 0 1px var(--divider)" }}><Plus size={16} />New installation</button>
-      </div>
 
         <section className="st hpanel" style={{ gridArea: "jump", ["--i" as string]: 2 }}>
           <div className="jh"><span>Jump back in</span><button className="link" onClick={() => app.navigate({ name: "installations", id: inst.id, tab: "Worlds" })}>Worlds<ChevronRight size={14} /></button></div>

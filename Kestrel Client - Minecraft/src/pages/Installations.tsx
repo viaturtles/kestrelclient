@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { ArchiveRestore, ArrowUpCircle, Clock, Copy, Download, FileDown, FileUp, FolderOpen, Image as ImageIcon, Info, Package, Plus, Search, SlidersHorizontal, Sparkles, Trash2, Globe, Puzzle, Eye, Upload } from "lucide-react";
+import { ArchiveRestore, ArrowUpCircle, Clock, Copy, Download, FileDown, FileUp, FolderOpen, Image as ImageIcon, Info, Package, Plus, Search, SlidersHorizontal, Sparkles, Trash2, Globe, Puzzle, Eye, Upload, Play, Check, ClipboardCopy } from "lucide-react";
 import { api, fileUrl, formatBytes, inApp, DESKTOP_ONLY, type ContentFile, type ContentKind, type Identified, type World } from "../lib/api";
 import { COVERS, errText, makeInstallation, useApp, type AppState, type Installation, type Mode } from "../lib/store";
 import { launchInstallation } from "../lib/launch";
@@ -8,14 +8,17 @@ import { confirmDialog, Group, Row, Seg, Select, Toggle } from "../components/ui
 import { exportInstallation, importInstallationFile, importSetupDialog, OptiFineGroup } from "../components/Extras";
 import { modeIcon } from "./Home";
 
-const TABS = ["Overview", "Content", "Worlds", "Screenshots", "Settings"] as const;
+const TABS = ["Overview", "Content", "Worlds", "Settings"] as const;
 type Tab = (typeof TABS)[number];
 
 export function Installations({ id, tab }: { id?: string; tab?: string }) {
   const app = useApp();
   const inst = app.installations.find((i) => i.id === id) ?? app.selected;
   const [q, setQ] = useState("");
-  const current: Tab = (TABS as readonly string[]).includes(tab ?? "") ? (tab as Tab) : "Overview";
+  // Screenshots live under Worlds now ("Screenshots" links still work).
+  const current: Tab = tab === "Screenshots" ? "Worlds" : (TABS as readonly string[]).includes(tab ?? "") ? (tab as Tab) : "Overview";
+  const [worldView, setWorldView] = useState<"Worlds" | "Screenshots">(tab === "Screenshots" ? "Screenshots" : "Worlds");
+  useEffect(() => { if (tab === "Screenshots") setWorldView("Screenshots"); }, [tab]);
   const list = app.installations.filter((i) => (i.name + i.version + i.mode).toLowerCase().includes(q.trim().toLowerCase()));
   const cover = COVERS[inst.cover] ?? COVERS.hypixel;
   const setTab = (t: Tab) => app.navigate({ name: "installations", id: inst.id, tab: t });
@@ -71,13 +74,15 @@ export function Installations({ id, tab }: { id?: string; tab?: string }) {
           <Seg label="Installation sections" value={current} onChange={setTab} items={[
             { value: "Overview", label: "Overview", icon: <Info size={14} /> }, { value: "Content", label: "Content", icon: <Package size={14} /> },
             { value: "Worlds", label: "Worlds", icon: <Globe size={14} /> },
-            { value: "Screenshots", label: "Screenshots", icon: <ImageIcon size={14} /> }, { value: "Settings", label: "Settings", icon: <SlidersHorizontal size={14} /> }]} />
+            { value: "Settings", label: "Settings", icon: <SlidersHorizontal size={14} /> }]} />
         </div>
-        <div key={current + inst.id} className="st" style={{ ["--i" as string]: 3 }}>
+        <div key={current + inst.id} className="st" style={{ ["--i" as string]: 3, display: "flex", flexDirection: "column", gap: 12 }}>
           {current === "Overview" && <Overview inst={inst} />}
           {current === "Content" && <Content inst={inst} />}
-          {current === "Worlds" && <Worlds inst={inst} />}
-          {current === "Screenshots" && <Screenshots inst={inst} />}
+          {current === "Worlds" && <>
+            <div><Seg label="Worlds or screenshots" value={worldView} onChange={setWorldView} items={[{ value: "Worlds", label: "Worlds", icon: <Globe size={14} /> }, { value: "Screenshots", label: "Screenshots", icon: <ImageIcon size={14} /> }]} /></div>
+            {worldView === "Worlds" ? <Worlds inst={inst} /> : <Screenshots inst={inst} />}
+          </>}
           {current === "Settings" && <InstSettings inst={inst} />}
         </div>
       </section>
@@ -151,6 +156,43 @@ function Overview({ inst }: { inst: Installation }) {
 }
 
 const KIND_LABEL: Record<string, string> = { resourcepacks: "Resource packs", shaderpacks: "Shaders", mods: "Mods" };
+/** Save the packs that are on right now as a named set, and switch sets in one click. */
+function PackProfiles({ inst }: { inst: Installation }) {
+  const app = useApp();
+  const profiles = inst.packProfiles ?? [];
+  const [active, setActive] = useState<string[] | null>(null);
+  useEffect(() => { api.getActivePacks(inst.id).then(setActive).catch(() => setActive([])); }, [inst.id]);
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+  const current = active ? profiles.find((p) => same(p.packs, active))?.name : undefined;
+  const save = () => app.openDialog({ title: "Save pack profile", body: <SaveProfile onSave={(name) => {
+    const next = [...profiles.filter((p) => p.name.toLowerCase() !== name.toLowerCase()), { name, packs: active ?? [] }];
+    app.updateInstallation(inst.id, { packProfiles: next }); app.closeDialog(); app.notify(`Saved "${name}" with ${(active ?? []).length} pack${(active ?? []).length === 1 ? "" : "s"}.`);
+  }} onCancel={app.closeDialog} /> });
+  const apply = (name: string) => {
+    const p = profiles.find((x) => x.name === name); if (!p) return;
+    api.setActivePacks(inst.id, p.packs).then(() => { setActive(p.packs); app.notify(`"${p.name}" will be used next time ${inst.name} starts.`); }).catch((e) => app.notify(errText(e), "error"));
+  };
+  return (
+    <div className="notice" style={{ gap: 12 }}>
+      <Package size={16} />
+      <span style={{ flex: 1 }}>{active === null ? "Reading your active packs…" : active.length ? `${active.length} pack${active.length === 1 ? "" : "s"} on in game${current ? ` · profile "${current}"` : ""}` : "No packs turned on in game yet"}</span>
+      {profiles.length > 0 && <Select label="Pack profile" width={170} value={current ?? "pick"} options={[...(current ? [] : [{ value: "pick", label: "Switch profile" }]), ...profiles.map((p) => ({ value: p.name, label: p.name, hint: `${p.packs.length} pack${p.packs.length === 1 ? "" : "s"}` }))]} onChange={(v) => v !== "pick" && apply(v)} />}
+      <button className="btn sm" disabled={active === null} onClick={save}>Save as profile</button>
+    </div>
+  );
+}
+
+function SaveProfile({ onSave, onCancel }: { onSave: (name: string) => void; onCancel: () => void }) {
+  const [name, setName] = useState("");
+  return (
+    <form style={{ display: "flex", flexDirection: "column", gap: 14 }} onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSave(name.trim()); }}>
+      <p className="t-cap" style={{ marginTop: -8 }}>Saves which resource packs are on in game right now, in order. Switch back to it any time.</p>
+      <label>Name<input className="field on-surface" autoFocus maxLength={24} value={name} onChange={(e) => setName(e.target.value)} placeholder="PvP" /></label>
+      <div className="actions"><button type="button" className="btn ghost" onClick={onCancel}>Cancel</button><button className="btn green" disabled={!name.trim()}><Check size={15} />Save</button></div>
+    </form>
+  );
+}
+
 function Content({ inst }: { inst: Installation }) {
   const app = useApp();
   const [kind, setKind] = useState<ContentKind>("resourcepacks");
@@ -195,6 +237,7 @@ function Content({ inst }: { inst: Installation }) {
         <button className="ibtn grey" style={{ width: 40, height: 40 }} aria-label="Open folder" onClick={() => api.openFolder("content", inst.id, kind).catch((e) => app.notify(errText(e), "error"))}><FolderOpen size={17} /></button>
         <button className="btn green" style={{ height: 40 }} onClick={() => app.navigate({ name: "explore", type: target, target: inst.id })}><Plus size={16} />Add content</button>
       </div>
+      {kind === "resourcepacks" && inApp && <PackProfiles inst={inst} />}
       {updates.length > 0 && (
         <div className="notice">
           <ArrowUpCircle size={16} /><span style={{ flex: 1 }}>{updates.length} update{updates.length === 1 ? "" : "s"} available from Modrinth for {inst.version}.</span>
@@ -294,6 +337,7 @@ function Worlds({ inst }: { inst: Installation }) {
                 <b className="t-strong" style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</b>
                 <span className="t-cap">{[ago(w.lastPlayed), w.mode, formatBytes(w.size), w.folder !== w.name ? w.folder : ""].filter(Boolean).join(" · ")}</span>
               </span>
+              <button className="btn sm" onClick={() => { app.selectInstallation(inst.id); launchInstallation(app, inst, null, w.folder); }}><Play size={12} />Play</button>
               <button className="btn sm" disabled={busy === w.folder} onClick={() => backup(w)}>{busy === w.folder ? <span className="spinner" /> : <ArchiveRestore size={14} />}Back up</button>
               <button className="ibtn sm" aria-label={`Show ${w.name} in folder`} onClick={() => api.revealFile(inst.id, "saves", w.folder).catch((e) => app.notify(errText(e), "error"))}><Eye size={15} /></button>
             </div>
@@ -302,6 +346,16 @@ function Worlds({ inst }: { inst: Installation }) {
       )}
     </div>
   );
+}
+
+/** Puts an image on the clipboard as PNG (Minecraft screenshots already are). */
+async function copyImage(url: string) {
+  const blob = await (await fetch(url)).blob();
+  const png = blob.type === "image/png" ? blob : await new Promise<Blob>((resolve, reject) => {
+    const img = new Image(); img.onload = () => { const c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight; c.getContext("2d")!.drawImage(img, 0, 0); c.toBlob((b) => (b ? resolve(b) : reject(new Error("encode"))), "image/png"); };
+    img.onerror = reject; img.src = URL.createObjectURL(blob);
+  });
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
 }
 
 function Screenshots({ inst }: { inst: Installation }) {
@@ -324,6 +378,7 @@ function Screenshots({ inst }: { inst: Installation }) {
               <div className="shot" style={{ aspectRatio: "16 / 9", borderRadius: 10, overflow: "hidden", background: "var(--surface)", position: "relative" }}>
                 <img src={fileUrl(base + f.file)} alt={f.name} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                 <div className="shot-actions" style={{ position: "absolute", right: 8, bottom: 8, display: "flex", gap: 6 }}>
+                  <button className="ibtn solid sm" aria-label="Copy image" title="Copy, then paste into Discord" onClick={() => copyImage(fileUrl(base + f.file)).then(() => app.notify("Screenshot copied. Paste it anywhere with Ctrl+V.")).catch(() => app.notify("Couldn't copy that screenshot.", "error"))}><ClipboardCopy size={14} /></button>
                   <button className="ibtn solid sm" aria-label="Show in folder" onClick={() => api.revealFile(inst.id, "screenshots", f.file).catch((e) => app.notify(errText(e), "error"))}><Eye size={14} /></button>
                   <button className="ibtn solid sm" aria-label="Delete screenshot" onClick={() => confirmDialog(app, { title: "Delete screenshot?", text: f.name, confirm: "Delete", danger: true,
                     onConfirm: () => api.deleteContent(inst.id, "screenshots", f.file).then(() => setFiles((l) => (l ?? []).filter((x) => x.file !== f.file))).catch((e) => app.notify(errText(e), "error")) })}><Trash2 size={14} /></button>
@@ -349,6 +404,8 @@ function InstSettings({ inst }: { inst: Installation }) {
   const javaOptions = useMemo(() => [{ value: "auto", label: "Automatic", hint: "Kestrel picks Java 8, downloading it if needed" },
     ...(app.javas ?? []).filter((j) => j.major === 8).map((j) => ({ value: j.path, label: `Java ${j.version}`, hint: `${j.source} · ${j.path}` }))], [app.javas]);
   const pct = ((mem - 1) / (maxGb - 1)) * 100;
+  // One-click memory presets (1.8.9 doesn't benefit from much more than 4 GB).
+  const presets = [{ value: "Low", gb: 2 }, { value: "Balanced", gb: 3 }, { value: "High", gb: Math.min(4, maxGb) }, { value: "Max", gb: Math.min(6, maxGb) }].filter((p, i, a) => a.findIndex((x) => x.gb === p.gb) === i);
   const commitSize = () => { const W = parseInt(w), H = parseInt(h); if (W >= 320 && H >= 240 && W <= 7680 && H <= 4320) app.updateInstallation(inst.id, { width: W, height: H }); else { setW(String(inst.width)); setH(String(inst.height)); } };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 860 }}>
@@ -358,11 +415,19 @@ function InstSettings({ inst }: { inst: Installation }) {
             <div className="tx"><b>Memory</b><span>1.8.9 runs best with 2–4 GB.{app.paths ? ` This PC has ${Math.round(app.paths.totalMemoryMb / 1024)} GB.` : ""}</span></div>
             <span className="t-strong" style={{ background: "var(--window)", padding: "6px 12px", borderRadius: 8 }}>{mem} GB</span>
           </div>
+          <div><Seg label="Memory preset" onSurface value={presets.find((p) => p.gb === mem)?.value ?? "Custom"} onChange={(v) => { const p = presets.find((x) => x.value === v); if (p) { setMem(p.gb); app.updateInstallation(inst.id, { memoryGb: p.gb }); } }}
+            items={[...presets.map((p) => ({ value: p.value, label: `${p.value} · ${p.gb} GB` })), ...(presets.some((p) => p.gb === mem) ? [] : [{ value: "Custom", label: `Custom · ${mem} GB` }])]} /></div>
           <input className="slider" type="range" min={1} max={maxGb} value={mem} aria-label="Memory in GB" style={{ ["--fill" as string]: `${pct}%` }}
             onChange={(e) => setMem(+e.target.value)} onMouseUp={() => app.updateInstallation(inst.id, { memoryGb: mem })} onKeyUp={() => app.updateInstallation(inst.id, { memoryGb: mem })} />
         </div>
         <Row title="Java" detail={inst.javaPath ?? "Automatic"}>
           <Select label="Java runtime" width={220} value={inst.javaPath ?? "auto"} options={javaOptions} onChange={(v) => app.updateInstallation(inst.id, { javaPath: v === "auto" ? null : v })} />
+        </Row>
+      </Group>
+      <Group title="Launch">
+        <Row title="Join on launch" detail="Go straight into a server every time you press Launch.">
+          <Select label="Join on launch" width={220} value={inst.autoJoin ?? "none"} options={[{ value: "none", label: "Don't join a server" }, ...app.servers.map((s) => ({ value: s.address, label: s.name, hint: s.address }))]}
+            onChange={(v) => app.updateInstallation(inst.id, { autoJoin: v === "none" ? null : v })} />
         </Row>
       </Group>
       <Group title="Window">

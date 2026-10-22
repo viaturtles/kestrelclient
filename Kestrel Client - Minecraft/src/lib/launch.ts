@@ -14,17 +14,23 @@ export async function openMissionControl() {
   });
 }
 
-/** Starts the real launch pipeline and shows it in Launch Control. */
-export async function launchInstallation(app: AppState, inst: Installation, server: string | null = null) {
+/**
+ * Starts the real launch pipeline and shows it in Launch Control.
+ * `server` joins a server on start; `world` opens a singleplayer world folder on start.
+ * With neither, the installation's "Join on launch" server is used (if set).
+ */
+export async function launchInstallation(app: AppState, inst: Installation, server: string | null = null, world: string | null = null) {
+  if (!server && !world && inst.autoJoin) server = inst.autoJoin;
   if (app.settings.interfaceSounds) sfx.launch(app.settings.soundVolume);
   try {
     await api.launch({
       instanceId: inst.id, name: inst.name, version: inst.version, mode: inst.mode, memoryGb: inst.memoryGb,
-      javaPath: inst.javaPath, jvmArgs: inst.jvmArgs, width: inst.width, height: inst.height, fullscreen: inst.fullscreen, server, optifine: inst.optifine ?? null, offlineName: app.settings.offlineName || null,
+      javaPath: inst.javaPath, jvmArgs: inst.jvmArgs, width: inst.width, height: inst.height, fullscreen: inst.fullscreen,
+      server, world, optifine: inst.optifine ?? null, offlineName: app.settings.offlineName || null, backupWorlds: app.settings.backupBeforeLaunch,
     });
     app.updateInstallation(inst.id, { lastPlayed: Date.now() });
     if (server) {
-      const known = app.servers.find((s) => s.address.toLowerCase() === server.toLowerCase());
+      const known = app.servers.find((s) => s.address.toLowerCase() === server!.toLowerCase());
       app.addHistory({ kind: "server", name: known?.name ?? server, detail: server, version: inst.version, at: Date.now(), serverAddress: server, installationId: inst.id });
     }
     await openMissionControl();

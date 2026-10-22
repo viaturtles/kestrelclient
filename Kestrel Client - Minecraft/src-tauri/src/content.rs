@@ -180,14 +180,56 @@ fn zip_dir(src: &Path, dest: &Path) -> Res<()> {
 /// Zips a world into %APPDATA%\Kestrel\backups\<installation>\.
 #[tauri::command]
 pub async fn backup_world(state: State<'_, AppState>, id: String, folder: String) -> Res<String> {
-    let src = instance_dir(&id)?.join("saves").join(safe_file_name(&folder)?);
+    let (i2, f2) = (id.clone(), folder.clone());
+    let dest = tokio::task::spawn_blocking(move || backup_blocking(&i2, &f2, None)).await.map_err(err("Backup"))??;
+    write_log(&state, &format!("Backed up world {folder} from {id}"));
+    Ok(dest.to_string_lossy().into())
+}
+
+/// Zips one world; with `keep`, deletes that world's oldest backups beyond that count.
+pub fn backup_blocking(id: &str, folder: &str, keep: Option<usize>) -> Res<std::path::PathBuf> {
+    let src = instance_dir(id)?.join("saves").join(safe_file_name(folder)?);
     if !src.join("level.dat").is_file() { return Err("That world wasn't found".into()); }
-    let out_dir = data_dir().join("backups").join(&id);
+    let out_dir = data_dir().join("backups").join(id);
     std::fs::create_dir_all(&out_dir).map_err(err("Backups folder"))?;
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let dest = out_dir.join(format!("{folder}-{secs}.zip"));
-    let d2 = dest.clone();
-    tokio::task::spawn_blocking(move || zip_dir(&src, &d2)).await.map_err(err("Backup"))??;
-    write_log(&state, &format!("Backed up world {folder} from {id}"));
-    Ok(dest.to_string_lossy().into())
+    zip_dir(&src, &dest)?;
+    if let Some(keep) = keep {
+        let prefix = format!("{folder}-");
+        let mut old: Vec<_> = std::fs::read_dir(&out_dir).map(|rd| rd.flatten().map(|e| e.path())
+            .filter(|p| p.file_name().map(|n| { let n = n.to_string_lossy(); n.starts_with(&prefix) && n.ends_with(".zip") && n[prefix.len()..n.len() - 4].chars().all(|c| c.is_ascii_digit()) }).unwrap_or(false))
+            .collect()).unwrap_or_default();
+        old.sort();
+        while old.len() > keep { let _ = std::fs::remove_file(old.remove(0)); }
+    }
+    Ok(dest)
+}
+
+/// Resource packs Minecraft has turned on (options.txt `resourcePacks:[...]`, top of the list first).
+#[tauri::command]
+pub fn get_active_packs(id: String) -> Res<Vec<String>> {
+    let text = std::fs::read_to_string(instance_dir(&id)?.join("options.txt")).unwrap_or_default();
+    Ok(text.lines().find_map(|l| l.strip_prefix("resourcePacks:")).and_then(|v| serde_json::from_str::<Vec<String>>(v).ok()).unwrap_or_default())
+}
+
+/// Sets which resource packs are on (used by pack profiles). Takes effect next time the game starts.
+#[tauri::command]
+pub fn set_active_packs(state: State<'_, AppState>, id: String, packs: Vec<String>) -> Res<()> {
+    for p in &packs { safe_file_name(p)?; }
+    let path = instance_dir(&id)?.join("options.txt");
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let line = format!("resourcePacks:{}", serde_json::to_string(&packs).unwrap());
+    let mut found = false;
+    let mut out: Vec<String> = text.lines().map(|l| if l.starts_with("resourcePacks:") { found = true; line.clone() } else { l.to_string() }).collect();
+    if !found { out.push(line); }
+    std::fs::write(&path, out.join("\n") + "\n").map_err(err("Save options"))?;
+    write_log(&state, &format!("Applied a pack profile to {id} ({} packs)", packs.len()));
+    Ok(())
+}
+
+/// All world folders in an installation.
+pub fn world_folders(id: &str) -> Vec<String> {
+    let Ok(dir) = instance_dir(id) else { return vec![] };
+    std::fs::read_dir(dir.join("saves")).map(|rd| rd.flatten().filter(|e| e.path().join("level.dat").is_file()).map(|e| e.file_name().to_string_lossy().to_string()).collect()).unwrap_or_default()
 }

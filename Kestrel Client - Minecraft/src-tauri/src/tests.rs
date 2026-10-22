@@ -98,6 +98,58 @@ fn offline_accounts_and_saved_sign_in() {
     assert_eq!(crate::account::dpapi(&enc, false).expect("unprotect"), secret);
 }
 
+/// Starts real Minecraft 1.8.9 (offline) with the quick play agent and checks the world opens.
+/// Needs the game already downloaded and a world in KESTREL_TEST_WORLD (folder path). `cargo test quick_play -- --ignored --nocapture`
+#[tokio::test]
+#[ignore]
+async fn quick_play_opens_world() {
+    use std::io::{BufRead, BufReader};
+    let world = std::path::PathBuf::from(std::env::var("KESTREL_TEST_WORLD").expect("set KESTREL_TEST_WORLD"));
+    let game = std::env::temp_dir().join("kestrel-quickplay-test");
+    let _ = std::fs::remove_dir_all(&game);
+    let name = world.file_name().unwrap().to_string_lossy().to_string();
+    copy_dir(&world, &game.join("saves").join(&name));
+    let h = http();
+    let v = crate::mojang::version_json(&h, "1.8.9").await.unwrap();
+    let p = crate::mojang::plan(&h, &v, "1.8.9").await.unwrap();
+    let (_, _, natives) = crate::mojang::version_paths("1.8.9");
+    let agent = std::env::temp_dir().join("kestrel-agent-test.jar");
+    std::fs::write(&agent, include_bytes!("../agent/kestrel-agent.jar")).unwrap();
+    use base64::Engine;
+    let cp = p.classpath.iter().map(|c| c.to_string_lossy().to_string()).collect::<Vec<_>>().join(";");
+    let mut child = std::process::Command::new(crate::java::managed_java("jre-legacy").with_file_name("java.exe"))
+        .arg("-Xmx2G").arg(format!("-Djava.library.path={}", natives.display()))
+        .arg(format!("-javaagent:{}={}", agent.display(), base64::engine::general_purpose::STANDARD.encode(name.as_bytes())))
+        .arg("-cp").arg(cp).arg("net.minecraft.client.main.Main")
+        .args(["--username", "Player", "--version", "1.8.9", "--gameDir"]).arg(&game)
+        .arg("--assetsDir").arg(crate::core::assets_dir()).args(["--assetIndex", &p.asset_index, "--uuid", "0", "--accessToken", "0", "--userProperties", "{}", "--userType", "legacy"])
+        .stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).spawn().expect("start java");
+    let out = child.stdout.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || { for l in BufReader::new(out).lines().map_while(Result::ok) { let _ = tx.send(l); } });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(150);
+    let (mut opening, mut loaded) = (false, false);
+    while std::time::Instant::now() < deadline && !loaded {
+        if let Ok(l) = rx.recv_timeout(std::time::Duration::from_secs(1)) {
+            if l.contains("[Kestrel]") || l.contains("integrated") || l.contains("joined the game") { println!("{l}"); }
+            if l.contains("[Kestrel] opening world") { opening = true; }
+            if l.contains("joined the game") { loaded = true; }
+        }
+    }
+    let _ = child.kill();
+    let _ = std::fs::remove_dir_all(&game);
+    assert!(opening, "agent never saw the title screen");
+    assert!(loaded, "world never loaded");
+}
+
+fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap().flatten() {
+        let p = e.path();
+        if p.is_dir() { copy_dir(&p, &to.join(e.file_name())); } else { std::fs::copy(&p, to.join(e.file_name())).unwrap(); }
+    }
+}
+
 #[test]
 fn library_rules_for_windows() {
     let allow_all = serde_json::json!({"rules":[{"action":"allow"},{"action":"disallow","os":{"name":"osx"}}]});

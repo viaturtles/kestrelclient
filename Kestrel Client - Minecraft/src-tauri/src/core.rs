@@ -70,6 +70,7 @@ pub struct AppState {
     pub log_lock: Mutex<()>,
     pub launch_log: Mutex<Option<PathBuf>>,
     pub discord: crate::discord::Discord,
+    pub last_launch: Mutex<Option<crate::launch::LaunchRequest>>,
 }
 
 impl AppState {
@@ -88,6 +89,7 @@ impl AppState {
             log_lock: Mutex::new(()),
             launch_log: Mutex::new(None),
             discord: crate::discord::Discord::start(crate::config::load().discord_app_id),
+            last_launch: Mutex::new(None),
         }
     }
 }

@@ -23,8 +23,12 @@
 
 /* Home: compact Jump back in panel */
 /* Home: installations row, then Jump back in · Your servers · Friends */
-.home-grid { flex: 1; display: grid; gap: 16px 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 340px; grid-template-rows: auto 1fr;
-  grid-template-areas: "inst inst friends" "jump servers friends"; min-height: 300px; }
+.home-grid { flex: 1; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 340px;
+  grid-template-areas: "jump servers friends"; min-height: 300px; }
+.rejoin { align-self: flex-start; margin-top: 4px; display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border-radius: 8px; font-size: 12.5px; font-weight: 600; color: var(--text);
+  background: #292b31; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1), 0 2px 4px rgba(0, 0, 0, .2); transition: background var(--fast); }
+.rejoin:hover { background: #33363d; }
+.rejoin span { color: var(--text3); font-weight: 500; }
 .hpanel { background: var(--panel); border-radius: 12px; padding: 14px 12px 8px 16px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); display: flex; flex-direction: column; min-width: 0; }
 .hpanel .jh { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .hpanel .jh span { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text3); }
@@ -38,7 +42,7 @@
 .friends .fempty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 6px; padding: 12px 18px 18px; color: var(--text3); font-size: 13px; line-height: 19px; }
 .friends .fempty b { color: var(--text); font-size: 14px; }
 .friends .ficon { width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center; background: var(--surface); color: var(--text2); margin-bottom: 4px; }
-@media (max-width: 1180px) { .home-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "inst inst" "jump servers" "friends friends"; } }
+@media (max-width: 1180px) { .home-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "jump servers" "friends friends"; } }
 
 /* Content icons (Modrinth icon or a placeholder) */
 .c-icon { width: 40px; height: 40px; border-radius: 8px; background: var(--surface); display: grid; place-items: center; color: var(--text3); flex: none; overflow: hidden; }

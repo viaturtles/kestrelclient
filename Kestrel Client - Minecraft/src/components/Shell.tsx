@@ -1,6 +1,9 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AlertTriangle, Bell,ChevronDown, ChevronLeft, ChevronRight, Download, Folder, FolderOpen, Gamepad2, Globe, House, Images, Info, LogIn, LogOut, MessageCircle, Minus, Palette, Puzzle, RefreshCw, RotateCcw, Scale, Settings as Gear, Square, User, X, FileText, MonitorPlay } from "lucide-react";
-import { api, inApp } from "../lib/api";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { api, inApp, onMission } from "../lib/api";
+import type { Update } from "@tauri-apps/plugin-updater";
+import { checkForUpdate, installUpdate } from "../lib/updates";
 import { openMissionControl } from "../lib/launch";
 import { sfx } from "../lib/sfx";
 import { SECTION_ORDER, sectionOf, useApp, type Route } from "../lib/store";
@@ -17,7 +20,6 @@ const RAIL = [
   { section: "home", label: "Home", icon: House, route: { name: "home" } as Route },
   { section: "installations", label: "Installations", icon: Folder, route: { name: "installations" } as Route },
   { section: "explore", label: "Explore", icon: Puzzle, route: { name: "explore" } as Route },
-  { section: "servers", label: "Servers", icon: Globe, route: { name: "servers" } as Route },
 ];
 
 const PRESENCE: Record<string, string> = {
@@ -86,6 +88,41 @@ export function Shell() {
 
   // Discord: what to show while in the launcher (the game sets its own status).
   const openedAt = useRef(Date.now());
+  // When Minecraft starts: minimise or hide Kestrel (setting), and bring it back when the game closes.
+  useEffect(() => {
+    if (!inApp) return;
+    let tucked = false;
+    const un = onMission(async (e) => {
+      if (e.kind !== "state") return;
+      const w = getCurrentWindow(), mode = app.settings.onGameStart;
+      if (e.status === "running" && !tucked) {
+        if (mode === "Minimise Kestrel") { tucked = true; await w.minimize(); }
+        else if (mode === "Hide Kestrel") { tucked = true; await w.hide(); }
+      } else if (tucked && (e.status === "exited" || e.status === "crashed" || e.status === "failed")) {
+        tucked = false; await w.show(); await w.unminimize(); await w.setFocus();
+      }
+    });
+    return () => { un.then((f) => f()); };
+  }, [app.settings.onGameStart]);
+  // Auto-update: check shortly after start, offer a one-click restart when a new version is ready.
+  const [update, setUpdate] = useState<Update | null>(null);
+  const [updating, setUpdating] = useState<number | null>(null);
+  const runUpdateCheck = (manual: boolean) => checkForUpdate().then((u) => {
+    setUpdate(u);
+    if (manual) app.notify(u ? `Kestrel ${u.version} is ready to install.` : "You're on the latest version of Kestrel.");
+  }).catch(() => { if (manual) app.notify("Couldn't check for updates. Check your internet connection.", "error"); });
+  useEffect(() => { if (!inApp) return; const t = setTimeout(() => runUpdateCheck(false), 4000); return () => clearTimeout(t); }, []);
+  const doUpdate = () => { if (!update || updating !== null) return; setUpdating(0); installUpdate(update, setUpdating).catch((e) => { setUpdating(null); app.notify(`Update failed: ${e instanceof Error ? e.message : e}`, "error"); }); };
+  // Ctrl+1 / 2 / 3 jump between sections.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.altKey || e.shiftKey) return;
+      const i = ["1", "2", "3"].indexOf(e.key); if (i < 0) return;
+      e.preventDefault(); go(RAIL[i].route);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
   useEffect(() => { if (inApp) api.discordPrefs(s.discordPresence, s.discordShowServer, s.discordInLauncher).catch(() => {}); }, [s.discordPresence, s.discordShowServer, s.discordInLauncher]);
   useEffect(() => {
     if (inApp) api.discordLauncher({ details: "In the Kestrel launcher", state: PRESENCE[section] ?? "", startMs: openedAt.current }).catch(() => {});
@@ -144,7 +181,7 @@ export function Shell() {
             <img src="/assets/imgKestrelOriginalWhiteBird.svg" alt="" />KESTREL<ChevronDown size={12} color="var(--text3)" />
           </button>} style={{ left: 0, top: 34, width: 240 }}>
           <MI icon={<Info size={16} />} onClick={() => { setMenu(""); aboutDialog(app); }}>About Kestrel</MI>
-          <MI icon={<RefreshCw size={16} />} onClick={() => { setMenu(""); app.notify("Update checks arrive with the first public release. You're on private build 0.1."); }}>Check for updates</MI>
+          <MI icon={<RefreshCw size={16} />} onClick={() => { setMenu(""); runUpdateCheck(true); }}>Check for updates</MI>
           <MI icon={<Scale size={16} />} onClick={() => { setMenu(""); licencesDialog(app); }}>Licences</MI>
           <div className="sep" />
           <MI icon={<MonitorPlay size={16} />} onClick={() => { setMenu(""); void openMissionControl(); }}>Launch Control</MI>
@@ -160,6 +197,11 @@ export function Shell() {
           <span className={"crumb" + (crumbSwap ? " swap" : "")}>{crumb}</span>
         </div>
         <div className="drag" onMouseDown={(e) => { if (e.button === 0 && e.detail === 1) control("startDragging"); }} />
+        {update && (
+          <button className="updpill" onClick={doUpdate} disabled={updating !== null} title={`Install Kestrel ${update.version} and restart`}>
+            <Download size={13} />{updating === null ? `Update to ${update.version}` : `Updating… ${Math.round(updating * 100)}%`}
+          </button>
+        )}
         <MenuAnchor open={menu === "news"} onClose={() => setMenu("")} trigger={
           <button className="newsbtn" aria-label="What's new" aria-expanded={menu === "news"} onClick={() => { setMenu(menu === "news" ? "" : "news"); markNewsRead(); setUnread(0); }}>
             <Bell size={13} /><span className="lbl">What's new</span>{unread > 0 && <span className="ndot" />}

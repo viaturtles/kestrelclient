@@ -78,8 +78,12 @@ function Game() {
           <Select label="Default window size" width={150} value={`${s.defaultWidth}x${s.defaultHeight}`} options={["854x480", "1280x720", "1600x900", "1920x1080"].map((v) => ({ value: v, label: v.replace("x", " × ") }))} onChange={(v) => { const [w, h] = v.split("x").map(Number); set({ defaultWidth: w, defaultHeight: h }); }} />
         </Row>
         <Row title="Start in fullscreen"><Toggle label="Start in fullscreen" checked={s.defaultFullscreen} onChange={(v) => set({ defaultFullscreen: v })} /></Row>
-        <Row title="When Minecraft starts" detail="What Kestrel does while you play.">
-          <Select label="When Minecraft starts" width={190} value={s.onGameStart} options={["Minimise Kestrel", "Keep Kestrel open", "Close Kestrel"].map((v) => ({ value: v, label: v }))} onChange={(v) => set({ onGameStart: v })} />
+        <Row title="When Minecraft starts" detail="Kestrel comes back by itself when the game closes.">
+          <Select label="When Minecraft starts" width={190} value={s.onGameStart} options={[
+            { value: "Minimise Kestrel", label: "Minimise Kestrel" }, { value: "Hide Kestrel", label: "Hide Kestrel", hint: "Out of the taskbar until you quit" }, { value: "Keep Kestrel open", label: "Keep Kestrel open" }]} onChange={(v) => set({ onGameStart: v })} />
+        </Row>
+        <Row title="Back up worlds before launching" detail="Zips each world first and keeps the last 5 backups of each.">
+          <Toggle label="Back up worlds before launching" checked={s.backupBeforeLaunch} onChange={(v) => set({ backupBeforeLaunch: v })} />
         </Row>
       </Group>
       <Group title="Java on this PC">

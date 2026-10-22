@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { AlertTriangle, ArrowDownToLine, Check, Circle, Copy, Download, FileText, FolderOpen, History, Minus, Radio, Search, Square as StopIcon, SkipForward, X } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, Check, Circle, Copy, Download, FileText, FolderOpen, History, Minus, Radio, RotateCcw, Search, Square as StopIcon, SkipForward, X } from "lucide-react";
 import { api, inApp, onMission, onStats, type LaunchRecord, type MissionEvent } from "../lib/api";
 import { useDismiss } from "../components/ui";
 
@@ -120,7 +120,17 @@ export function Mission() {
               <button className="ibtn sm" aria-label="Open logs folder" title="Open logs folder" disabled={!inApp} onClick={() => api.openFolder("logs")}><FileText size={15} /></button>
             </div>
             {v.state === "crashed" && (
-              <div className="mcrash" role="alert"><AlertTriangle size={16} /><div><b>Minecraft crashed.</b> {v.detail}</div></div>
+              <div className="mcrash" role="alert"><AlertTriangle size={16} />
+                <div style={{ flex: 1 }}>
+                  <div><b>Minecraft crashed.</b> {v.detail}</div>
+                  {!hist && inApp && (
+                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                      <button className="btn sm" onClick={() => api.relaunchLast(false).catch(() => {})}><RotateCcw size={13} />Relaunch</button>
+                      {v.steps.some((s) => s.id === "mode" && /optifine/i.test(s.detail)) && <button className="btn sm" onClick={() => api.relaunchLast(true).catch(() => {})}>Relaunch without OptiFine</button>}
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
             <div className="mlog mono" ref={logRef} onScroll={(e) => { const el = e.currentTarget; const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24; if (!atBottom && follow) setFollow(false); }}>
               {shown.length === 0 && <span className="faint">{v.lines.length ? "Nothing matches the filter." : "Console output appears here."}</span>}

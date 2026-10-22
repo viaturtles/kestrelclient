@@ -25,7 +25,7 @@ export type ContentKind = "mods" | "resourcepacks" | "shaderpacks" | "screenshot
 
 export type LaunchRequest = {
   instanceId: string; name: string; version: string; mode: string; memoryGb: number;
-  javaPath: string | null; jvmArgs: string; width: number; height: number; fullscreen: boolean; server: string | null; optifine: string | null; offlineName: string | null;
+  javaPath: string | null; jvmArgs: string; width: number; height: number; fullscreen: boolean; server: string | null; optifine: string | null; offlineName: string | null; world?: string | null; backupWorlds?: boolean;
 };
 export type AccountInfo = { name: string; uuid: string };
 export type DiscordUser = { id: string; username: string; displayName: string; avatarUrl?: string; linkedAt: number };
@@ -77,6 +77,9 @@ export const api = {
   pingServer: (address: string) => call<ServerStatus>("ping_server", { address }),
   launch: (req: LaunchRequest) => call<void>("launch_game", { req }),
   stopGame: () => call<void>("stop_game"),
+  relaunchLast: (standard: boolean) => call<void>("relaunch_last", { standard }),
+  getActivePacks: (id: string) => call<string[]>("get_active_packs", { id }),
+  setActivePacks: (id: string, packs: string[]) => call<void>("set_active_packs", { id, packs }),
   missionSnapshot: () => call<MissionEvent[]>("mission_snapshot"),
   installContent: (args: { instanceId: string; kind: ContentKind; url: string; filename: string; sha1?: string; sha512?: string; size?: number; title: string }) =>
     call<string>("install_content", { args }),

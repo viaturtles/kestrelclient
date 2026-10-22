@@ -23,6 +23,8 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(core::AppState::new())
         .invoke_handler(tauri::generate_handler![
             instances::app_paths,
@@ -46,6 +48,9 @@ fn main() {
             servers::ping_server,
             launch::launch_game,
             launch::stop_game,
+            launch::relaunch_last,
+            content::get_active_packs,
+            content::set_active_packs,
             launch::mission_snapshot,
             launch::list_launches,
             launch::read_launch,
