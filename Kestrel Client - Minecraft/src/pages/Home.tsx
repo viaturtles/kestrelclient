@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Cpu, Play, Plus, RotateCcw, Settings as Gear, UserPlus, Users } from "lucide-react";
-import { COVERS, useApp, type HistoryItem, type Mode } from "../lib/store";
+import { COVERS, errText, useApp, type HistoryItem, type Mode } from "../lib/store";
+import { sfx } from "../lib/sfx";
 import { launchInstallation } from "../lib/launch";
 import { api, inApp, onMission, type ServerStatus } from "../lib/api";
 import { signInDialog } from "../components/Shell";
@@ -20,12 +21,37 @@ export function LaunchButton({ onLaunch }: { onLaunch: () => void }) {
     const un = onMission((e) => { if (e.kind === "state") setBusy(e.status === "preparing"); });
     return () => { un.then((f) => f()); };
   }, []);
+  // Install first: until Java 8 and every game file are ready, the button says INSTALL.
+  const [gameReady, setGameReady] = useState<boolean | null>(inApp ? null : true);
+  const [installing, setInstalling] = useState(false);
+  useEffect(() => { if (inApp && !app.javas) app.refreshJava().catch(() => {}); }, []);
+  const doneJobs = app.jobs.filter((j) => j.state === "done").length;
+  useEffect(() => { if (inApp) api.gameStatus(inst.version).then((s) => setGameReady(s.installed)).catch(() => setGameReady(false)); }, [inst.version, doneJobs]);
+  const javaReady = !inApp || app.javas === null || app.javas.some((j) => j.major === 8 && /64/.test(j.arch));
+  const ready = gameReady !== false && javaReady;
+  const job = app.jobs.find((j) => j.state === "running" && (j.id === `game-${inst.version}` || j.id === "runtime-jre-legacy"));
+  const pct = job && job.total ? Math.round((job.done / job.total) * 100) : null;
+  const install = async () => {
+    setInstalling(true);
+    try {
+      if (!javaReady) { await api.installJava(); await app.refreshJava(); }
+      if (gameReady === false) await api.installGame(inst.version);
+      setGameReady(true);
+      if (app.settings.interfaceSounds) sfx.done(app.settings.soundVolume);
+      app.notify(`Minecraft ${inst.version} is installed. Press Launch Game to play.`);
+    } catch (e) {
+      if (app.settings.interfaceSounds) sfx.error(app.settings.soundVolume);
+      app.notify(errText(e), "error");
+    } finally { setInstalling(false); }
+  };
+  const label = busy ? "PREPARING…" : installing || job ? `INSTALLING${pct !== null ? ` ${pct}%` : "…"}` : ready ? "LAUNCH GAME" : "INSTALL";
   return (
     <div ref={ref} style={{ position: "relative" }}>
-      <div className={"launch" + (busy ? " busy" : "")}>
+      <div className={"launch" + (busy || installing ? " busy" : "")} title={!ready && !installing ? `Downloads ${javaReady ? "" : "Java 8 and "}Minecraft ${inst.version} from Mojang` : undefined}>
         <span className="shine" />
-        <button className="main" aria-label={`Launch ${inst.name}`} onClick={onLaunch}>
-          <span className="big">{busy ? "PREPARING…" : "LAUNCH GAME"}</span>
+        {(installing || job) && <span className="prog" style={{ width: `${pct ?? 4}%` }} />}
+        <button className="main" aria-label={ready ? `Launch ${inst.name}` : `Install Minecraft ${inst.version}`} disabled={installing || !!job} onClick={ready ? onLaunch : install}>
+          <span className="big">{label}</span>
         </button>
         <button className="chev" aria-label="Choose installation and launch mode" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}><ChevronDown size={18} strokeWidth={2.5} /></button>
       </div>

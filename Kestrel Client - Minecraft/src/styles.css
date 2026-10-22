@@ -195,6 +195,8 @@ textarea.field { height: auto; min-height: 80px; padding: 10px 12px; resize: ver
 .launch .sub { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: #f2fff6; }
 .launch .sub img { width: 14px; height: 14px; object-fit: contain; border-radius: 3px; }
 .launch .sub .bird { width: 12px; height: 12px; }
+.launch .prog { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255, 255, 255, .2); transition: width 300ms ease; pointer-events: none; }
+.launch .main:disabled { cursor: default; }
 .launch .chev { width: 40px; display: grid; place-items: center; background: rgba(0, 0, 0, .08); box-shadow: inset 1px 0 0 rgba(255, 255, 255, .28); }
 .launch .chev svg { transition: transform var(--base) var(--ease); }
 .launch .chev[aria-expanded="true"] svg { transform: rotate(180deg); }

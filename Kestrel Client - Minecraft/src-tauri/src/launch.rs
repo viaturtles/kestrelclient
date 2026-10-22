@@ -228,6 +228,13 @@ async fn run(app: &AppHandle, st: &AppState, req: LaunchRequest) -> Res<()> {
     let offline = signed_in.is_none();
     let (user, uuid, token) = match signed_in {
         Some(a) => { m_step(app, st, "account", "done", "Account", &format!("{} (Microsoft)", a.0)); a }
+        None if crate::config::REQUIRE_OWNED_ACCOUNT && !crate::account::owner_verified() => {
+            m_step(app, st, "account", "failed", "Account", "Sign in with Microsoft once to play. Kestrel needs to check you own Minecraft: Java Edition.");
+            m_step(app, st, "start", "skipped", "Start Minecraft", "Waiting for sign-in");
+            m_log(app, st, "warn", "Stopped: sign in with a Microsoft account that owns Minecraft once on this PC. After that, singleplayer also works offline.");
+            m_state(app, st, "blocked", "Sign-in needed");
+            return Ok(());
+        }
         None => {
             let name = req.offline_name.clone().filter(|n| crate::account::valid_offline_name(n)).unwrap_or_else(|| "Player".into());
             m_step(app, st, "account", "skipped", "Account", &format!("Offline as {name}. Singleplayer works; online servers like Hypixel need Microsoft sign-in."));

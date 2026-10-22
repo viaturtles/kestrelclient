@@ -47,6 +47,18 @@ pub(crate) fn dpapi(data: &[u8], encrypt: bool) -> Option<Vec<u8>> {
 #[cfg(not(windows))]
 fn dpapi(data: &[u8], _: bool) -> Option<Vec<u8>> { Some(data.to_vec()) }
 
+/// Remembers (encrypted) that this PC has signed in with an account that owns Minecraft.
+/// Kept after sign-out, so owners can still play singleplayer offline.
+fn mark_owner(name: &str, uuid: &str) {
+    if let Some(enc) = dpapi(serde_json::json!({ "name": name, "uuid": uuid }).to_string().as_bytes(), true) {
+        let _ = std::fs::write(data_dir().join("owner.dat"), enc);
+    }
+}
+pub fn owner_verified() -> bool {
+    std::fs::read(data_dir().join("owner.dat")).ok().and_then(|b| dpapi(&b, false))
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok()).map(|v| v["uuid"].as_str().is_some_and(|u| u.len() >= 32)).unwrap_or(false)
+}
+
 fn load() -> Option<Saved> { serde_json::from_slice(&dpapi(&std::fs::read(file()).ok()?, false)?).ok() }
 fn save(s: &Saved) -> Res<()> {
     let enc = dpapi(&serde_json::to_vec(s).unwrap(), true).ok_or("Couldn't protect the saved sign-in")?;
@@ -149,6 +161,7 @@ pub async fn account_sign_in(app: AppHandle, state: State<'_, AppState>) -> Res<
     let (ms, refresh) = ms_token(http, &[("client_id", &id), ("grant_type", "authorization_code"), ("code", &code), ("redirect_uri", &redirect), ("code_verifier", &verifier), ("scope", SCOPE)]).await?;
     let (name, uuid, mc_token, mc_expires) = minecraft_from_ms(http, &ms).await?;
     save(&Saved { name: name.clone(), uuid: uuid.clone(), refresh_token: refresh, mc_token, mc_expires })?;
+    mark_owner(&name, &uuid);
     write_log(&state, &format!("Signed in as {name}"));
     Ok(AccountInfo { name, uuid })
 }
@@ -187,6 +200,7 @@ pub async fn for_launch(http: &reqwest::Client) -> Res<Option<(String, String, S
     let (name, uuid, token, expires) = minecraft_from_ms(http, &ms).await?;
     s = Saved { name, uuid, refresh_token: refresh, mc_token: token, mc_expires: expires };
     save(&s)?;
+    mark_owner(&s.name, &s.uuid);
     Ok(Some((s.name, s.uuid, s.mc_token)))
 }
 

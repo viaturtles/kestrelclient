@@ -170,7 +170,11 @@ pub async fn install(app: &AppHandle, state: &AppState, id: &str, log: &(dyn Fn(
     state.cancels.lock().unwrap().remove(&job_id);
     let mut job = JobUpdate { id: job_id, title, detail: String::new(), state: String::new(), done: 1, total: 1, error: None };
     match &result {
-        Ok(_) => { job.state = "done".into(); job.detail = "Installed and verified".into(); }
+        Ok(_) => {
+            job.state = "done".into(); job.detail = "Installed and verified".into();
+            // Every file passed its check: remember that, so Home can say "Launch" instead of "Install".
+            let _ = std::fs::write(version_paths(id).0.with_file_name(".kestrel-complete"), b"ok");
+        }
         Err(e) => { job.state = if e == "Cancelled" { "cancelled".into() } else { "failed".into() }; job.detail = e.clone(); job.error = Some(e.clone()); }
     }
     emit_job(app, &job);
@@ -186,7 +190,8 @@ pub async fn install_game(app: AppHandle, state: State<'_, AppState>, version: S
 #[tauri::command]
 pub async fn game_status(version: String) -> Res<VersionStatus> {
     let (json, jar, natives) = version_paths(&version);
-    Ok(VersionStatus { installed: json.is_file() && jar.is_file() && natives.is_dir(), path: jar.to_string_lossy().to_string(), id: version })
+    let complete = json.with_file_name(".kestrel-complete").is_file();
+    Ok(VersionStatus { installed: complete && json.is_file() && jar.is_file() && natives.is_dir(), path: jar.to_string_lossy().to_string(), id: version })
 }
 
 #[tauri::command]
