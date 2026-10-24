@@ -1,1 +1,28 @@
+- Sign in with Microsoft: play online with your own account, your real skin and head in the launcher, and switch between the Minecraft capes you own
+- Kestrel capes, with optional cloth physics in game. Pick and preview them in 3D in the new Cosmetics tab, in the launcher or in game (Right Shift > Cosmetics)
+- Friends: add friends by Minecraft name, see who's online and which server they're on, and join them in one click from the launcher, Home or in game
+- Other Kestrel players show the Kestrel bird in Tab and wear their Kestrel cape
+- HUD editor: Right Shift > Edit HUD, then drag your HUD anywhere. It snaps to edges and other boxes; scroll to resize
+- Cleaner ping bars in the Ping HUD and the Tab list
+- Launch Control now shows the whole game log (it used to stop early)
+- New: Kestrel Core, built into every 1.8.9 launch. A Kestrel title screen over Minecraft's own panorama, and press Right Shift in game to open your mods
+- First HUD mods: FPS, CPS, Coordinates, Clock, Ping and TPS, each with its own settings and a live preview
+- Gameplay mods: Zoom, Fullbright, custom Crosshair, Block outline, Damage effects (hit colour, no hurt shake), Toggle sprint and sneak
+- Better chat: timestamps, repeated messages stack as [x3], right-click a message to copy it, Ctrl+F to search
+- A new Tab list with your ping in ms and the Kestrel logo next to Kestrel players
+- Screenshots get Open, Copy and Folder buttons; the pause menu gets Kestrel, Screenshots, Resource Packs and Reconnect
+- Hypixel helpers (each off until you turn it on, except alerts): friend and party alerts, Auto GG, Auto requeue, keybinds per server
+- Triangulation: throw two Eyes of Ender and Kestrel shows where the stronghold is (not for verified speedruns)
+- Much higher FPS with no change to how the game looks: about twice the FPS in a busy area with walls, +70% in an open lobby in our tests (Right Shift > Settings > Performance)
+- Installations install themselves: Java and Minecraft download as soon as you pick one, and OptiFine installs by itself once you've downloaded it from OptiFine's site (Kestrel opens the page for you)
+- Your skin in 3D on the title screen; drag to turn it
+- Kestrel's menus follow your Minecraft GUI scale, and the in-game panel is see-through with a light blur so you can still watch the game (Menu size, Panel opacity and Blur strength are in Settings)
 - The update window now shows the real release notes
+- Popups redone: clearer titles, one line explaining each, and About now includes the licences
+- When Minecraft crashes, Launch Control offers a one-click fix (more memory, repair files, the right Java, back up worlds...)
+- World backups can be restored from Installations → Worlds → Backups (the current world is backed up first)
+- Low-end mode in an installation's Settings for older PCs
+- Play time per installation: this week, all time and your longest session
+- A redesigned launcher: a new Home made of widgets you choose (Customize), with a quick tour for new players; a Cosmetics tab; Installations as picture cards; Explore with a pack of the week and one-click installs; Servers with banners and ping bars; a cleaner Settings
+- Kestrel's own banners and icons, and no more interface sounds
+- A cleaner in-game look: HUD numbers with grey labels and ping bars, mods sorted into HUD, Gameplay, Chat and Hypixel with a "Show on only" switch, tidier settings and new title screen buttons

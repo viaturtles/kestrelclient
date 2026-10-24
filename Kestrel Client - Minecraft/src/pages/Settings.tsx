@@ -1,24 +1,24 @@
 import { useEffect, useState } from "react";
-import { Bell, Download, FileText, FolderOpen, Gamepad2, HardDrive, Lock, LogIn, MessageCircle, RefreshCw, Search, ShieldCheck, SlidersHorizontal, User } from "lucide-react";
+import { Bell, Check, Download, FileText, FolderOpen, Gamepad2, Globe, HardDrive, House, Lock, MessageCircle, Puzzle, RefreshCw, Search, ShieldCheck, SlidersHorizontal, User } from "lucide-react";
 import { api, inApp, DESKTOP_ONLY } from "../lib/api";
 import { getVersion } from "@tauri-apps/api/app";
-import { errText, useApp } from "../lib/store";
-import { sfx } from "../lib/sfx";
+import { COVERS, errText, useApp } from "../lib/store";
 import { Group, Row, Select, Toggle } from "../components/ui";
 import { signInDialog } from "../components/Shell";
+import { MICROSOFT_SIGN_IN_OPEN } from "../lib/config";
 
 const CATS = [
   { id: "Game", icon: Gamepad2 }, { id: "General", icon: SlidersHorizontal }, { id: "Account", icon: User }, { id: "Storage", icon: HardDrive },
   { id: "Notifications", icon: Bell }, { id: "Discord", icon: MessageCircle }, { id: "Privacy", icon: Lock },
 ] as const;
 const SUB: Record<string, string> = {
-  Game: "Defaults for new installations. Each installation can change these.", General: "How Kestrel looks, moves and sounds.",
+  Game: "Defaults for new installations. Each installation can change these.", General: "How Kestrel looks and starts.",
   Account: "Sign in with the Microsoft account that owns Minecraft.", Storage: "Where Kestrel keeps game files.",
   Notifications: "Choose when Kestrel lets you know about things.", Discord: "Show what you're playing on your Discord profile.", Privacy: "Kestrel keeps your data on your PC.",
 };
 const KEYWORDS: Record<string, string> = {
-  Game: "memory java resolution fullscreen window runtime", General: "language motion animation sweep transition sound startup update",
-  Account: "microsoft sign in skin cape", Storage: "folder logs cache disk", Notifications: "download update error sound", Discord: "rich presence status idle", Privacy: "crash reports analytics data logs",
+  Game: "memory java resolution fullscreen window runtime", General: "language motion animation sweep transition startup update",
+  Account: "microsoft sign in skin cape", Storage: "folder logs cache disk", Notifications: "download update error", Discord: "rich presence status idle", Privacy: "crash reports analytics data logs",
 };
 
 export function SettingsPage({ tab }: { tab?: string }) {
@@ -26,24 +26,23 @@ export function SettingsPage({ tab }: { tab?: string }) {
   const cat = CATS.find((c) => c.id === tab)?.id ?? "General";
   const [q, setQ] = useState("");
   const shown = CATS.filter((c) => !q.trim() || (c.id + " " + KEYWORDS[c.id]).toLowerCase().includes(q.trim().toLowerCase()));
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => { if (inApp) getVersion().then(setVersion).catch(() => {}); }, []);
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "232px 1px minmax(0, 720px)", gap: 32, padding: 20, minHeight: "100%" }}>
-      <nav className="st" style={{ display: "flex", flexDirection: "column", gap: 4 }} aria-label="Settings categories">
-        <h1 className="t-display" style={{ marginBottom: 12 }}>Settings</h1>
-        <label className="search" style={{ height: 38, marginBottom: 6 }}><Search size={16} /><input placeholder="Search settings" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search settings" /></label>
+    <div style={{ display: "grid", gridTemplateColumns: "248px minmax(0, 1fr)", gap: 20, padding: 20, minHeight: "100%", alignItems: "start" }}>
+      <nav className="st snav" aria-label="Settings categories">
+        <h1 className="t-display" style={{ margin: "4px 4px 12px" }}>Settings</h1>
+        <label className="search" style={{ height: 36, marginBottom: 10, background: "var(--window)" }}><Search size={16} /><input placeholder="Search settings" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search settings" /></label>
         {shown.map(({ id, icon: Icon }) => (
-          <button key={id} aria-current={id === cat ? "page" : undefined} onClick={() => app.navigate({ name: "settings", tab: id })}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 9, fontWeight: 600, color: id === cat ? "var(--text)" : "var(--text2)", transition: "background var(--fast), color var(--fast)",
-              background: id === cat ? "var(--control)" : "transparent", boxShadow: id === cat ? "inset 0 0 0 1px rgba(255,255,255,.12)" : "none" }}>
-            <Icon size={16} />{id}
+          <button key={id} className={"snav-item" + (id === cat ? " on" : "")} aria-current={id === cat ? "page" : undefined} onClick={() => app.navigate({ name: "settings", tab: id })}>
+            <span className="snav-tile"><Icon size={15} /></span>{id}
           </button>
         ))}
-        <div style={{ marginTop: "auto", paddingTop: 20 }} className="t-cap">Kestrel · Private build 0.1<br />Not affiliated with Mojang or Microsoft</div>
+        <div className="snav-foot"><img src="/assets/imgKestrelOriginalWhiteBird.svg" alt="" /><span><b>Kestrel{version ? ` ${version}` : ""}</b><span>Not affiliated with Mojang</span></span></div>
       </nav>
-      <div style={{ background: "var(--divider)" }} />
-      <section key={cat} style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-        <div className="st"><h2 className="t-display">{cat}</h2><p className="muted" style={{ marginTop: 4 }}>{SUB[cat]}</p></div>
-        <div className="st" style={{ display: "flex", flexDirection: "column", gap: 24, ["--i" as string]: 1 }}>
+      <section key={cat} style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 820 }}>
+        <div className="st" style={{ padding: "6px 0 4px" }}><h2 className="t-display">{cat}</h2><p className="muted" style={{ marginTop: 4 }}>{SUB[cat]}</p></div>
+        <div className="st" style={{ display: "flex", flexDirection: "column", gap: 14, ["--i" as string]: 1 }}>
           {cat === "Game" && <Game />}
           {cat === "General" && <General />}
           {cat === "Account" && <Account />}
@@ -79,10 +78,6 @@ function Game() {
           <Select label="Default window size" width={150} value={`${s.defaultWidth}x${s.defaultHeight}`} options={["854x480", "1280x720", "1600x900", "1920x1080"].map((v) => ({ value: v, label: v.replace("x", " × ") }))} onChange={(v) => { const [w, h] = v.split("x").map(Number); set({ defaultWidth: w, defaultHeight: h }); }} />
         </Row>
         <Row title="Start in fullscreen"><Toggle label="Start in fullscreen" checked={s.defaultFullscreen} onChange={(v) => set({ defaultFullscreen: v })} /></Row>
-        <Row title="When Minecraft starts" detail="Kestrel comes back by itself when the game closes.">
-          <Select label="When Minecraft starts" width={190} value={s.onGameStart} options={[
-            { value: "Minimise Kestrel", label: "Minimise Kestrel" }, { value: "Hide Kestrel", label: "Hide Kestrel", hint: "Out of the taskbar until you quit" }, { value: "Keep Kestrel open", label: "Keep Kestrel open" }]} onChange={(v) => set({ onGameStart: v })} />
-        </Row>
         <Row title="Back up worlds before launching" detail="Zips each world first and keeps the last 5 backups of each.">
           <Toggle label="Back up worlds before launching" checked={s.backupBeforeLaunch} onChange={(v) => set({ backupBeforeLaunch: v })} />
         </Row>
@@ -107,28 +102,41 @@ function General() {
   const app = useApp(), s = app.settings, set = app.setSettings;
   const [version, setVersion] = useState<string | null>(null);
   useEffect(() => { if (inApp) getVersion().then(setVersion).catch(() => {}); }, []);
+  const starts = [
+    { id: "Home", icon: House, art: (COVERS[app.selected.cover] ?? COVERS.hypixel).src },
+    { id: "Installations", icon: FolderOpen, art: COVERS.firstlight.src },
+    { id: "Explore", icon: Puzzle, art: "/assets/v3/complementary.jpg" },
+    { id: "Servers", icon: Globe, art: "/assets/imgHypixelBackground1.png" },
+  ];
   return (
     <>
+      <div className="supd">
+        <span className="supd-icon"><img src="/assets/imgKestrelOriginalWhiteBird.svg" alt="" /></span>
+        <span style={{ flex: 1, minWidth: 0 }}><b>Kestrel {version ?? ""}</b><span>Checks for updates on its own every 30 minutes.</span></span>
+        <button className="btn" style={{ background: "rgba(20,21,25,.75)" }} disabled={!inApp} onClick={() => window.dispatchEvent(new Event("kestrel:check-updates"))}><RefreshCw size={14} />Check for updates</button>
+      </div>
       <Group title="Appearance">
-        <Row title="Language"><Select label="Language" width={160} value={s.language} options={[{ value: "English", label: "English" }]} onChange={(v) => set({ language: v })} /></Row>
-        <Row title="Reduce motion" detail="Shorter transitions, no sweep and no decorative animation."><Toggle label="Reduce motion" checked={s.reducedMotion} onChange={(v) => set({ reducedMotion: v })} /></Row>
-        <Row title="Section sweep" detail="The Kestrel sweep when you move between sidebar sections."><Toggle label="Section sweep" checked={s.sectionTransitions} disabled={s.reducedMotion} onChange={(v) => set({ sectionTransitions: v })} /></Row>
+        <Row title="Language" detail="More languages come later."><span className="t-strong" style={{ paddingRight: 4 }}>English</span></Row>
+        <Row title="Reduce motion" detail="Shorter transitions, no sweep."><Toggle label="Reduce motion" checked={s.reducedMotion} onChange={(v) => set({ reducedMotion: v })} /></Row>
+        <Row title="Section sweep" detail="The Kestrel sweep between sidebar sections."><Toggle label="Section sweep" checked={s.sectionTransitions} disabled={s.reducedMotion} onChange={(v) => set({ sectionTransitions: v })} /></Row>
       </Group>
-      <Group title="Sounds">
-        <Row title="Interface sounds" detail="Only for Launch, finished downloads and errors. Never for clicks."><Toggle label="Interface sounds" checked={s.interfaceSounds} onChange={(v) => { set({ interfaceSounds: v }); if (v) sfx.done(s.soundVolume); }} /></Row>
-        <Row title="Volume">
-          <input className="slider" type="range" min={0} max={100} value={Math.round(s.soundVolume * 100)} aria-label="Sound volume" disabled={!s.interfaceSounds} style={{ width: 200, ["--fill" as string]: `${s.soundVolume * 100}%` }}
-            onChange={(e) => set({ soundVolume: +e.target.value / 100 })} onMouseUp={() => sfx.done(s.soundVolume)} />
-        </Row>
-      </Group>
-      <Group title="Updates">
-        <Row title={`Kestrel ${version ?? ""}`.trim()} detail="Kestrel checks for updates on its own every 30 minutes.">
-          <button className="btn sm" disabled={!inApp} onClick={() => window.dispatchEvent(new Event("kestrel:check-updates"))}><RefreshCw size={14} />Check for updates</button>
-        </Row>
-      </Group>
+      <div className="group">
+        <span className="gt">Start Kestrel on</span>
+        <div className="start-tiles">
+          {starts.map(({ id, icon: Icon, art }) => (
+            <button key={id} type="button" className={"start-tile" + (s.startOn === id ? " on" : "")} aria-pressed={s.startOn === id} onClick={() => set({ startOn: id })}>
+              <span className="st-art" style={{ backgroundImage: `url(${art})` }}>{s.startOn === id && <Check size={13} strokeWidth={3} className="mt-check" />}</span>
+              <span className="st-lab"><span className="snav-tile"><Icon size={14} /></span>{id}</span>
+            </button>
+          ))}
+        </div>
+      </div>
       <Group title="Startup">
-        <Row title="Start on"><Select label="Start on" width={160} value={s.startOn} options={["Home", "Installations", "Explore", "Servers"].map((v) => ({ value: v, label: v }))} onChange={(v) => set({ startOn: v })} /></Row>
         <Row title="Open Kestrel when Windows starts" detail="Coming in a later update."><Toggle label="Open with Windows" checked={false} disabled onChange={() => {}} /></Row>
+        <Row title="When Minecraft starts" detail="Kestrel comes back by itself when the game closes.">
+          <Select label="When Minecraft starts" width={190} value={s.onGameStart} options={[
+            { value: "Minimise Kestrel", label: "Minimise Kestrel" }, { value: "Hide Kestrel", label: "Hide Kestrel", hint: "Out of the taskbar until you quit" }, { value: "Keep Kestrel open", label: "Keep Kestrel open" }]} onChange={(v) => set({ onGameStart: v })} />
+        </Row>
       </Group>
     </>
   );
@@ -173,11 +181,11 @@ function Account() {
       <Group title="Microsoft account">
         {app.account ? (
           <Row title={app.account.name} detail="Signed in. Online servers like Hypixel work.">
-            <img src={`https://mc-heads.net/avatar/${app.account.uuid}/64`} alt="" style={{ width: 32, height: 32, borderRadius: 6, imageRendering: "pixelated" }} />
+            <img src={app.head ?? `https://mc-heads.net/avatar/${app.account.uuid}/64`} alt="" style={{ width: 32, height: 32, borderRadius: 6, imageRendering: "pixelated" }} />
             <button className="btn sm" onClick={() => api.signOut().then(() => { app.setAccount(null); app.notify("Signed out."); }).catch((e) => app.notify(errText(e), "error"))}>Sign out</button>
           </Row>
         ) : (
-          <Row title="Not signed in" detail="Needed for online servers. Singleplayer works offline.">
+          <Row title="Not signed in" detail={MICROSOFT_SIGN_IN_OPEN ? "Needed for online servers. Singleplayer works offline." : "Coming soon: Kestrel is waiting for Mojang to approve sign-in. Singleplayer works offline."}>
             <button onClick={() => signInDialog(app)} style={{ display: "flex", alignItems: "center", gap: 10, height: 36, padding: "0 14px 0 12px", borderRadius: 8, background: "#2f2f2f", color: "#fff", fontWeight: 600, boxShadow: "inset 0 0 0 1px rgba(140,140,140,.5)" }}>
               <svg width="18" height="18" viewBox="0 0 21 21" aria-hidden="true"><rect width="10" height="10" fill="#f25022" /><rect x="11" width="10" height="10" fill="#7fba00" /><rect y="11" width="10" height="10" fill="#00a4ef" /><rect x="11" y="11" width="10" height="10" fill="#ffb900" /></svg>
               Sign in with Microsoft

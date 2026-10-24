@@ -1,6 +1,5 @@
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { api, inApp } from "./api";
-import { sfx } from "./sfx";
 import { errText, type AppState, type Installation } from "./store";
 
 /** Opens (or focuses) the Launch Control window. */
@@ -21,13 +20,11 @@ export async function openMissionControl() {
  */
 export async function launchInstallation(app: AppState, inst: Installation, server: string | null = null, world: string | null = null) {
   if (!server && !world && inst.autoJoin) server = inst.autoJoin;
-  if (app.settings.interfaceSounds) sfx.launch(app.settings.soundVolume);
   try {
     await api.launch({
       instanceId: inst.id, name: inst.name, version: inst.version, mode: inst.mode, memoryGb: inst.memoryGb,
       javaPath: inst.javaPath, jvmArgs: inst.jvmArgs, width: inst.width, height: inst.height, fullscreen: inst.fullscreen,
-      server, world, optifine: inst.optifine ?? null, offlineName: app.settings.offlineName || null, backupWorlds: app.settings.backupBeforeLaunch,
-    });
+      server, world, optifine: inst.optifine ?? null, offlineName: app.settings.offlineName || null, backupWorlds: app.settings.backupBeforeLaunch,    });
     app.updateInstallation(inst.id, { lastPlayed: Date.now() });
     if (server) {
       const known = app.servers.find((s) => s.address.toLowerCase() === server!.toLowerCase());
@@ -35,7 +32,6 @@ export async function launchInstallation(app: AppState, inst: Installation, serv
     }
     await openMissionControl();
   } catch (e) {
-    if (app.settings.interfaceSounds) sfx.error(app.settings.soundVolume);
     app.notify(errText(e), "error");
   }
 }

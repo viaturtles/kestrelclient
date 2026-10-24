@@ -9,7 +9,7 @@ import { Group, Row, Toggle } from "./ui";
 // ---------------- Bring your setup over ----------------
 
 export function importSetupDialog(app: AppState, inst: Installation) {
-  app.openDialog({ title: "Bring your setup over", wide: true, body: <ImportSetup app={app} inst={inst} /> });
+  app.openDialog({ title: "Bring your setup over", sub: `From .minecraft into ${inst.name}. Nothing there is changed.`, icon: <FolderOpen size={18} />, wide: true, body: <ImportSetup app={app} inst={inst} /> });
 }
 
 function ImportSetup({ app, inst }: { app: AppState; inst: Installation }) {
@@ -57,38 +57,42 @@ function ImportSetup({ app, inst }: { app: AppState; inst: Installation }) {
     </>
   );
 
+  const Pick = ({ on, set, name, detail, disabled }: { on: boolean; set: () => void; name: string; detail: string; disabled?: boolean }) => (
+    <button className={"pick" + (on ? " on" : "")} aria-pressed={on} disabled={disabled} onClick={set}>
+      <span className="box">{on && <Check size={12} strokeWidth={3} />}</span>
+      <span className="nm">{name}</span><span className="t-cap">{detail}</span>
+    </button>
+  );
   const PackList = ({ items, chosen, put }: { items: ImportScan["resourcepacks"]; chosen: Set<string>; put: (s: Set<string>) => void }) => (
     <div className="pick-list">
-      {items.map((p) => (
-        <button key={p.file} className={"pick" + (chosen.has(p.file) ? " on" : "")} aria-pressed={chosen.has(p.file)} onClick={() => flip(chosen, put, p.file)}>
-          <span className="box">{chosen.has(p.file) && <Check size={12} strokeWidth={3} />}</span>
-          <span className="nm">{p.name}</span><span className="t-cap">{p.size ? formatBytes(p.size) : "Folder"}</span>
-        </button>
-      ))}
+      {items.map((p) => <Pick key={p.file} on={chosen.has(p.file)} set={() => flip(chosen, put, p.file)} name={p.name} detail={p.size ? formatBytes(p.size) : "Folder"} />)}
     </div>
   );
+  const all = (scan.options ? 1 : 0) + (scan.servers.length ? 1 : 0) + scan.resourcepacks.length + scan.shaderpacks.length;
+  const selectAll = (on: boolean) => {
+    setOptions(on && scan.options); setServers(on && scan.servers.length > 0);
+    setPacks(new Set(on ? scan.resourcepacks.map((p) => p.file) : [])); setShaders(new Set(on ? scan.shaderpacks.map((p) => p.file) : []));
+  };
+  const Head = ({ t }: { t: string }) => <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: ".06em", color: "var(--text3)" }}>{t}</span>;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <p className="t-cap" style={{ marginTop: -8 }}>Copies from <span className="mono">{scan.path}</span> into {inst.name}. Nothing in .minecraft is changed.</p>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ maxHeight: 380, overflowY: "auto", display: "flex", flexDirection: "column", gap: 16, paddingRight: 4 }}>
-        <Group>
-          <Row title="Settings and keybinds" detail={scan.options ? "options.txt, plus OptiFine settings if you have them" : "No options.txt found"}>
-            <Toggle label="Copy settings and keybinds" checked={options} disabled={!scan.options} onChange={setOptions} />
-          </Row>
-          <Row title="Server list" detail={scan.servers.length ? scan.servers.slice(0, 3).map((s) => s.address).join(", ") + (scan.servers.length > 3 ? ` and ${scan.servers.length - 3} more` : "") : "No saved servers found"}>
-            <Toggle label="Copy server list" checked={servers} disabled={!scan.servers.length} onChange={setServers} />
-          </Row>
-        </Group>
+        <div className="group"><Head t="SETTINGS AND SERVERS" />
+          <div className="pick-list">
+            <Pick on={options} set={() => setOptions(!options)} disabled={!scan.options} name="Settings and keybinds" detail={scan.options ? "options.txt" : "Not found"} />
+            <Pick on={servers} set={() => setServers(!servers)} disabled={!scan.servers.length} name="Server list" detail={scan.servers.length ? `${scan.servers.length} server${scan.servers.length === 1 ? "" : "s"}` : "Not found"} />
+          </div>
+        </div>
         {scan.resourcepacks.length > 0 && (
-          <div className="group"><span className="gt">Resource packs · {packs.size} of {scan.resourcepacks.length}</span><PackList items={scan.resourcepacks} chosen={packs} put={setPacks} /></div>
+          <div className="group"><Head t={`RESOURCE PACKS · ${packs.size} OF ${scan.resourcepacks.length}`} /><PackList items={scan.resourcepacks} chosen={packs} put={setPacks} /></div>
         )}
         {scan.shaderpacks.length > 0 && (
-          <div className="group"><span className="gt">Shaders · {shaders.size} of {scan.shaderpacks.length}</span><PackList items={scan.shaderpacks} chosen={shaders} put={setShaders} /></div>
+          <div className="group"><Head t={`SHADERS · ${shaders.size} OF ${scan.shaderpacks.length}`} /><PackList items={scan.shaderpacks} chosen={shaders} put={setShaders} /></div>
         )}
       </div>
       <div className="actions">
-        <span className="t-cap" style={{ flex: 1 }}>Files with the same name in {inst.name} are replaced.</span>
+        <button className="link" onClick={() => selectAll(total < all)}>{total < all ? "Select all" : "Select none"}</button>
         <button className="btn ghost" onClick={app.closeDialog}>Cancel</button>
         <button className="btn green" disabled={busy || total === 0} onClick={run}>{busy ? <span className="spinner" /> : <Download size={15} />}Copy {total} item{total === 1 ? "" : "s"}</button>
       </div>
@@ -177,7 +181,7 @@ export async function importInstallationFile(app: AppState) {
   if (typeof path !== "string") return;
   try {
     const f = (await api.readInstallationFile(path)) as Shared;
-    app.openDialog({ title: "Import installation", body: <ImportFile app={app} f={f} /> });
+    app.openDialog({ title: "Import installation", sub: <>From <span className="mono">{path.split(/[\\/]/).pop()}</span></>, icon: <FileUp size={18} />, body: <ImportFile app={app} f={f} /> });
   } catch (e) { app.notify(errText(e), "error"); }
 }
 
@@ -206,14 +210,14 @@ function ImportFile({ app, f }: { app: AppState; f: Shared }) {
   };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <label>Name<input className="field on-surface" autoFocus value={name} maxLength={32} onChange={(e) => setName(e.target.value)} />{taken && <span style={{ color: "var(--danger)" }}>You already have an installation with this name.</span>}</label>
-      <Group>
-        <Row title="Setup" detail={`${src.version ?? "1.8.9"} · ${src.mode ?? "OptiFine"} · ${src.memoryGb ?? 3} GB`} />
-        <Row title="Files to download" detail={f.content?.length ? `${f.content.length} from Modrinth, each checked against its hash` : "None"} />
-        {f.notIncluded?.length > 0 && <Row title="Not included" detail={`${f.notIncluded.slice(0, 3).join(", ")}${f.notIncluded.length > 3 ? ` and ${f.notIncluded.length - 3} more` : ""}. These weren't from Modrinth, so ask the sender for them.`} />}
-        {src.optifine && <Row title="OptiFine" detail={`Uses ${pretty(String(src.optifine))}. Set it up on this PC from the installation's Overview.`} />}
-      </Group>
-      <div className="actions">
+      <label>Name<input className="field on-surface" autoFocus value={name} maxLength={32} onChange={(e) => setName(e.target.value)} />{taken && <span style={{ color: "var(--danger)", fontWeight: 400 }}>You already have an installation with this name.</span>}</label>
+      <div className="inset rows">
+        <div><span>Setup</span><span>{`${src.version ?? "1.8.9"} · ${src.mode ?? "OptiFine"} · ${src.memoryGb ?? 3} GB`}</span></div>
+        <div><span>Downloads</span><span>{f.content?.length ? `${f.content.length} file${f.content.length === 1 ? "" : "s"} from Modrinth` : "None"}</span></div>
+      </div>
+      {f.notIncluded?.length > 0 && <p className="note">Not included: {f.notIncluded.slice(0, 3).join(", ")}{f.notIncluded.length > 3 ? ` and ${f.notIncluded.length - 3} more` : ""}. They weren't from Modrinth, so ask the sender for them.</p>}
+      {src.optifine && <p className="note">Uses {pretty(String(src.optifine))}. Kestrel sets it up when you first press Launch.</p>}
+      <div className="actions" style={{ marginTop: 4 }}>
         <button className="btn ghost" onClick={app.closeDialog}>Cancel</button>
         <button className="btn green" disabled={!clean || taken} onClick={go}><Download size={15} />Import</button>
       </div>

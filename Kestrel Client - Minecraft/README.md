@@ -46,6 +46,25 @@ Kestrel checks `releases/latest/download/latest.json` on GitHub a few seconds af
 
 Local signed builds: set `TAURI_SIGNING_PRIVATE_KEY` to the key file's contents and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to empty before `npm.cmd run tauri build`.
 
+### Kestrel Core (in-game mod)
+
+`src-tauri/core/kestrel-core.jar` is added to every 1.8.9 launch with `-javaagent`, with or without OptiFine. Everything is sized from Minecraft's GUI scale (plus the Menu size setting). It replaces the title screen's buttons (the vanilla panorama stays, with a 3D skin preview you can drag to turn), opens the Kestrel panel with Right Shift (Mods, mod settings with a live preview, Settings), and draws the HUD mods (FPS, CPS, Coordinates, Clock). Settings are saved per installation in `<game folder>\kestrel\settings.properties`. If any part fails it switches itself off and the game carries on with vanilla.
+
+Mods (`Mod.ALL`): HUD mods in `Mod.java` (FPS, CPS, Coordinates, Clock, Ping, TPS), gameplay mods in `Tools.java` (Zoom, Fullbright, Crosshair, Block outline, Damage effects, Toggle sprint, Better chat, Screenshots, Pause shortcuts, Friend alerts, Keybinds per server, Auto GG, Auto requeue, Triangulation) and `TabList.java`. Settings can be switches, sliders, choices or keys. Notices in the top-right come from `Toasts`. Chat commands: `/kestrel reset` (Triangulation), `/kestrel copyshot <file>` (used by the screenshot Copy button).
+
+How it works: `Patcher` adds three calls into the game as it loads (GuiMainMenu draw/click, GuiIngame overlay). `KestrelBridge` and `KestrelScreen` are written against 1.8.9's obfuscated names (MCP names in comments) and loaded by `GameLoader`, because Minecraft's jar is signed. Drawing is plain OpenGL with Inter (OFL) and Lucide icons (ISC).
+
+Performance (Settings > Performance, both on by default, both skip themselves where OptiFine replaces the same code):
+- **Fewer GPU waits** (`Mat`): a CPU copy of the GL matrices, kept in step with GlStateManager, answers vanilla's per-frame matrix readbacks; GL error checks are off. A real readback every few seconds checks the copy and turns it off on any mismatch.
+- **Faster clouds** (`KestrelClouds`): fancy clouds are built once into display lists and only moved each frame.
+- **Hide hidden mobs and blocks** (`KestrelCull`): entities and block entities completely behind solid blocks aren't drawn (rays from the camera to points on their box). Players and anything with a custom name are never culled (their name tags show through walls in vanilla); things coming back into view are checked every frame.
+- New installations start with `useVbo:true` in options.txt (vanilla's own Video Setting, ~4%).
+Measured with the bench (`-Dkestrel.bench=<file.json>`, `-Dkestrel.bench.scene=lobby|town`, `-Dkestrel.perf=none|all|names`, `-Dkestrel.profile=<file.txt>`, `-Dkestrel.bench.ab=culling` for a same-run picture A/B) on an RTX 3060 / Ryzen 7 5700G: lobby ~317 → ~588 FPS, town (walls) ~319 → ~646 FPS, 1% lows 126 → 179; pictures match vanilla. Tried and dropped (no gain): streaming vertex buffer, cached chunk search, batched text.
+
+OptiFine can't be bundled or downloaded by Kestrel (OptiFine's terms). `optifine_auto` opens the official download page, finds the jar in Downloads, and runs OptiFine's own `optifine.Installer.doInstall` headless (`kestrel.core.OptiFineSetup`) into a private folder, then imports it.
+
+Rebuild after changing `core/src`: `powershell -ExecutionPolicy Bypass -File src-tauri\core\build.ps1` (needs a JDK and Minecraft 1.8.9 installed once by Kestrel). Icons: `node src-tauri\core\icons.cjs` (needs sharp). Self-test: start the game with `-Dkestrel.test=<folder>` (and optionally `-Dkestrel.test.world=<save>`); it saves a screenshot of each screen into the folder and quits.
+
 ### Quick play agent
 
 `src-tauri/agent/kestrel-agent.jar` (source in `agent/src`) opens a singleplayer world on start, since 1.8.9 has no launch option for it. Rebuild with JDK 8+: `javac --release 8`, then `jar cfm kestrel-agent.jar MANIFEST.MF -C out .`.

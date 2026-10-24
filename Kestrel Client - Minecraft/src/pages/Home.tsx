@@ -1,12 +1,11 @@
-import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Cpu, Play, Plus, RotateCcw, Settings as Gear, UserPlus, Users } from "lucide-react";
-import { COVERS, errText, useApp, type HistoryItem, type Mode } from "../lib/store";
-import { sfx } from "../lib/sfx";
+import React, { useEffect, useRef, useState } from "react";
+import { Check, ChevronDown, ChevronRight, Cpu, Folder, Globe, Keyboard, Play, Plus, Puzzle, Settings as Gear, SlidersHorizontal, X } from "lucide-react";
+import { COVERS, errText, useApp, type HistoryItem, type Mode, type Route } from "../lib/store";
 import { launchInstallation } from "../lib/launch";
-import { api, inApp, onMission, type ServerStatus } from "../lib/api";
-import { signInDialog } from "../components/Shell";
-import { useDismiss } from "../components/ui";
+import { api, inApp, onMission, type PlayStats, type ServerStatus } from "../lib/api";
+import { confirmDialog, useDismiss } from "../components/ui";
 import { newInstallationDialog } from "./Installations";
+import { HomeWidgets, readTour, tourHidden, TOUR_HIDDEN } from "./HomeWidgets";
 
 export const modeIcon = (m: Mode) => (m === "OptiFine" ? "/assets/imgOptiFineIcon.png" : "/assets/v3/mc.png");
 
@@ -37,26 +36,91 @@ export function LaunchButton({ onLaunch }: { onLaunch: () => void }) {
       if (!javaReady) { await api.installJava(); await app.refreshJava(); }
       if (gameReady === false) await api.installGame(inst.version);
       setGameReady(true);
-      if (app.settings.interfaceSounds) sfx.done(app.settings.soundVolume);
       app.notify(`Minecraft ${inst.version} is installed. Press Launch Game to play.`);
     } catch (e) {
-      if (app.settings.interfaceSounds) sfx.error(app.settings.soundVolume);
       app.notify(errText(e), "error");
     } finally { setInstalling(false); }
   };
-  const label = busy ? "PREPARING…" : installing || job ? `INSTALLING${pct !== null ? ` ${pct}%` : "…"}` : ready ? "LAUNCH GAME" : "INSTALL";
+  // Install by itself: as soon as an installation isn't ready, start getting Java and the game.
+  const tried = useRef<string | null>(null);
+  useEffect(() => {
+    if (!inApp || ready || installing || job || app.javas === null || gameReady === null) return;
+    const key = `${inst.version}:${javaReady}:${gameReady}`;
+    if (tried.current === key) return; // one automatic try; after an error the button is a manual retry
+    tried.current = key;
+    install();
+  }, [ready, installing, !!job, app.javas, gameReady, inst.version]);
+
+  // OptiFine: Kestrel can't download it for you (OptiFine's terms), so it opens the official page,
+  // spots the file in Downloads and installs it without OptiFine's window.
+  const [ofReady, setOfReady] = useState<boolean | null>(inApp ? null : true);
+  const [ofWaiting, setOfWaiting] = useState(false);
+  const [ofInstalling, setOfInstalling] = useState(false);
+  useEffect(() => {
+    if (!inApp || inst.mode !== "OptiFine") { setOfReady(true); return; }
+    if (!inst.optifine) { setOfReady(false); return; }
+    api.optifineReady(inst.optifine).then(setOfReady).catch(() => setOfReady(false));
+  }, [inst.id, inst.mode, inst.optifine]);
+  const checkOptiFine = async (first: boolean) => {
+    setOfInstalling(true);
+    try {
+      const r = await api.optifineAuto();
+      if (r.installed && r.id) {
+        app.updateInstallation(inst.id, { optifine: r.id });
+        setOfReady(true);
+        setOfWaiting(false);
+        app.notify("OptiFine is installed. Press Launch Game to play.");
+      } else if (first) {
+        // OptiFine can't be bundled (its terms), so say where we're sending them before opening the site.
+        confirmDialog(app, {
+          title: "Get OptiFine",
+          text: "You'll be sent to optifine.net in your browser.",
+          icon: <img src="/assets/imgOptiFineIcon.png" alt="" style={{ width: 20, height: 20 }} />,
+          confirm: "Open optifine.net",
+          children: (
+            <>
+              <div className="inset steps">
+                <div><span className="n">1</span>Click Download on OptiFine's page</div>
+                <div><span className="n">2</span>Come back here: Kestrel installs it for you</div>
+              </div>
+              <p className="note">OptiFine can't be included with Kestrel, so it comes from its official site.</p>
+            </>
+          ),
+          onConfirm: async () => {
+            await api.openLink(r.page);
+            setOfWaiting(true);
+          },
+        });
+      }
+    } catch (e) {
+      setOfWaiting(false);
+      app.notify(errText(e), "error");
+    } finally { setOfInstalling(false); }
+  };
+  useEffect(() => {
+    if (!ofWaiting) return;
+    const started = Date.now();
+    const t = setInterval(() => { if (Date.now() - started > 15 * 60000) setOfWaiting(false); else checkOptiFine(false); }, 2500);
+    return () => clearInterval(t);
+  }, [ofWaiting, inst.id]);
+  const needsOptiFine = ready && ofReady === false;
+
+  const label = busy ? "PREPARING…" : installing || job ? `INSTALLING${pct !== null ? ` ${pct}%` : "…"}`
+    : needsOptiFine ? (ofInstalling && !ofWaiting ? "INSTALLING OPTIFINE…" : ofWaiting ? "WAITING FOR OPTIFINE…" : "GET OPTIFINE")
+    : ready ? "LAUNCH GAME" : "INSTALL";
+  const onMain = !ready ? install : needsOptiFine ? () => (ofWaiting ? setOfWaiting(false) : checkOptiFine(true)) : onLaunch;
   return (
     <div ref={ref} style={{ position: "relative" }}>
-      <div className={"launch" + (busy || installing ? " busy" : "")} title={!ready && !installing ? `Downloads ${javaReady ? "" : "Java 8 and "}Minecraft ${inst.version} from Mojang` : undefined}>
+      <div className={"launch" + (busy || installing ? " busy" : "")} title={!ready && !installing ? `Downloads ${javaReady ? "" : "Java 8 and "}Minecraft ${inst.version} from Mojang` : needsOptiFine ? (ofWaiting ? "Waiting for the OptiFine download in your Downloads folder. Click to stop waiting." : "Opens OptiFine's official download page; Kestrel installs it once it's downloaded") : undefined}>
         <span className="shine" />
         {(installing || job) && <span className="prog" style={{ width: `${pct ?? 4}%` }} />}
-        <button className="main" aria-label={ready ? `Launch ${inst.name}` : `Install Minecraft ${inst.version}`} disabled={installing || !!job} onClick={ready ? onLaunch : install}>
+        <button className="main" aria-label={needsOptiFine ? "Get OptiFine" : ready ? `Launch ${inst.name}` : `Install Minecraft ${inst.version}`} disabled={installing || !!job || (ofInstalling && !ofWaiting)} onClick={onMain}>
           <span className="big">{label}</span>
         </button>
         <button className="chev" aria-label="Choose installation and launch mode" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}><ChevronDown size={18} strokeWidth={2.5} /></button>
       </div>
       {open && (
-        <div className="menu" role="menu" style={{ right: 0, bottom: 56, width: 292, transformOrigin: "bottom right", maxHeight: 520, overflowY: "auto" }}>
+        <div className="menu" role="menu" style={{ right: 0, top: 56, width: 292, transformOrigin: "top right", maxHeight: 380, overflowY: "auto" }}>
           <div className="mh">Installation</div>
           {app.installations.map((i) => (
             <button key={i.id} role="menuitemradio" aria-checked={i.id === inst.id} className={"mi" + (i.id === inst.id ? " active" : "")} onClick={() => { app.selectInstallation(i.id); setOpen(false); }}>
@@ -65,10 +129,6 @@ export function LaunchButton({ onLaunch }: { onLaunch: () => void }) {
               {i.id === inst.id && <Check size={16} className="check" />}
             </button>
           ))}
-          <button role="menuitem" className="mi" onClick={() => { setOpen(false); newInstallationDialog(app); }}>
-            <span style={{ width: 28, height: 28, display: "grid", placeItems: "center", borderRadius: 6, boxShadow: "inset 0 0 0 1px var(--divider)" }}><Plus size={15} /></span>
-            <span>New installation</span>
-          </button>
           <div className="sep" />
           <div className="mh">Launch mode</div>
           {(["OptiFine", "Standard"] as Mode[]).map((m) => (
@@ -95,69 +155,6 @@ function ago(ms: number) {
   return new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-/** Saved servers with live player counts and ping. */
-function ServersPanel() {
-  const app = useApp();
-  const [status, setStatus] = useState<Record<string, ServerStatus | null>>({});
-  useEffect(() => {
-    if (!inApp) return;
-    const ping = () => app.servers.forEach((s) => api.pingServer(s.address).then((r) => setStatus((x) => ({ ...x, [s.id]: r }))).catch(() => setStatus((x) => ({ ...x, [s.id]: { online: false } }))));
-    ping();
-    const t = setInterval(ping, 60000);
-    return () => clearInterval(t);
-  }, [app.servers.map((s) => s.address).join()]);
-  const list = [...app.servers].sort((a, b) => Number(!!status[b.id]?.online) - Number(!!status[a.id]?.online)).slice(0, 4);
-  return (
-    <section className="st hpanel" style={{ gridArea: "servers", ["--i" as string]: 3 }}>
-      <div className="jh"><span>Your servers</span><button className="link" onClick={() => app.navigate({ name: "servers" })}>Servers<ChevronRight size={14} /></button></div>
-      {list.length === 0 && <div className="hempty">Add servers on the Servers page to see who's online.</div>}
-      {list.map((s) => {
-        const st = status[s.id], on = !!st?.online;
-        return (
-          <div key={s.id} className="jrow" style={{ opacity: st && !on ? 0.55 : 1 }}>
-            <span className="jthumb" style={{ imageRendering: "pixelated", backgroundImage: `url(${st?.favicon ?? (/hypixel/i.test(s.address) ? COVERS.hypixel.src : COVERS.classic.src)})` }} />
-            <span style={{ flex: 1, minWidth: 0 }}>
-              <b className="t-strong ell">{s.name}</b>
-              <span className="t-cap" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span className="sdot" style={{ background: st === undefined ? "var(--text3)" : on ? "var(--accent-text)" : "var(--text3)" }} />
-                {!inApp ? s.address : st === undefined ? "Checking…" : on ? `${(st.playersOnline ?? 0).toLocaleString()} online${st.pingMs != null ? ` · ${st.pingMs} ms` : ""}` : "Offline"}
-              </span>
-            </span>
-            {on && <button className="btn grey sm" onClick={() => launchInstallation(app, app.selected, s.address)}><Play size={12} />Join</button>}
-          </div>
-        );
-      })}
-    </section>
-  );
-}
-
-/** Friends: needs Microsoft sign-in; adding friends arrives with Kestrel's online service. */
-function FriendsPanel() {
-  const app = useApp();
-  return (
-    <section className="st hpanel friends" style={{ gridArea: "friends", ["--i" as string]: 2 }}>
-      <div className="fh">
-        <b>Friends</b>
-        <button className="ibtn grey sm" aria-label="Add friend" disabled={!app.account} title={app.account ? "Adding friends arrives in an upcoming update" : "Sign in with Microsoft first"}><UserPlus size={15} /></button>
-      </div>
-      <div className="fempty">
-        <span className="ficon"><Users size={22} /></span>
-        {app.account ? (
-          <>
-            <b>Add friends by their Minecraft name</b>
-            <span>See what your friends are playing and join them in one click. Friends arrive in an upcoming update.</span>
-          </>
-        ) : (
-          <>
-            <b>Sign in to add friends</b>
-            <span>Friends use your Minecraft account, so sign in with Microsoft to add players by their Minecraft name.</span>
-            <button className="btn grey sm" style={{ marginTop: 6 }} onClick={() => signInDialog(app)}>Sign in with Microsoft</button>
-          </>
-        )}
-      </div>
-    </section>
-  );
-}
 
 export function Home() {
   const app = useApp();
@@ -194,9 +191,16 @@ export function Home() {
     return () => window.removeEventListener("keydown", onKey);
   }, [inst.id, app.dialog]);
 
+  // New players get the tour until they finish or hide it; then This week takes its place.
+  const [hidden, setHidden] = useState(tourHidden);
+  const tourDone = readTour().length >= 5;
+  const returning = hidden || tourDone;
+  const hideTour = () => { try { localStorage.setItem(TOUR_HIDDEN, "1"); } catch { /* ignore */ } setHidden(true); };
+  const played = history.length > 0;
+
   return (
     <div className="pad" style={{ display: "flex", flexDirection: "column", gap: 16, minHeight: "100%" }}>
-      <section className="cover st" style={{ height: 372, flex: "none", ["--i" as string]: 0 }}>
+      <section className="cover st" style={{ height: 272, flex: "none", ["--i" as string]: 0 }}>
         <div className={"art" + (artKey > 1 ? " enter" : "")} key={artKey} style={{ backgroundImage: `url(${cover.src})` }} />
         <div className="scrim" />
         <div style={{ position: "absolute", left: 36, bottom: 36, display: "flex", flexDirection: "column", gap: 10 }} key={"t" + artKey}>
@@ -209,11 +213,9 @@ export function Home() {
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}><img src={modeIcon(inst.mode)} alt="" style={{ width: 16, height: 16, borderRadius: 3 }} />{inst.mode}</span>
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Cpu size={15} color="#c9ced6" />{inst.memoryGb} GB memory</span>
           </div>
-          {lastServer && (
-            <button className="rejoin st" style={{ ["--i" as string]: 3 }} onClick={() => launchInstallation(app, inst, lastServer.serverAddress!)}>
-              <RotateCcw size={13} />Rejoin {lastServer.name}<span>· {ago(lastServer.at)}</span>
-            </button>
-          )}
+          <span className="t-small shadowtext st" style={{ color: "#e3e7ec", ["--i" as string]: 3 }}>
+            {lastServer ? `Last played ${lastServer.name} · ${ago(lastServer.at)}` : inst.lastPlayed ? `Last played ${ago(inst.lastPlayed)}` : "Press Launch: Java and Minecraft install by themselves the first time."}
+          </span>
         </div>
         <div style={{ position: "absolute", right: 36, bottom: 36, display: "flex", gap: 10, alignItems: "center" }}>
           <button className="ibtn solid" style={{ width: 48, height: 48, borderRadius: 10 }} aria-label="Installation settings" onClick={() => app.navigate({ name: "installations", id: inst.id, tab: "Settings" })}><Gear size={18} className="spin" /></button>
@@ -221,23 +223,7 @@ export function Home() {
         </div>
       </section>
 
-      <div className="home-grid">
-
-        <section className="st hpanel" style={{ gridArea: "jump", ["--i" as string]: 2 }}>
-          <div className="jh"><span>Jump back in</span><button className="link" onClick={() => app.navigate({ name: "installations", id: inst.id, tab: "Worlds" })}>Worlds<ChevronRight size={14} /></button></div>
-          {history.length === 0 ? (
-            <div className="hempty">Worlds and servers you play show up here.</div>
-          ) : history.map((h, n) => (
-            <div key={n} className="jrow">
-              <span className="jthumb" style={{ imageRendering: h.icon ? "pixelated" : undefined, backgroundImage: `url(${h.icon ? h.icon : h.kind === "server" && /hypixel/i.test(h.serverAddress ?? "") ? COVERS.hypixel.src : h.kind === "server" ? COVERS.classic.src : COVERS.sunset.src})` }} />
-              <span style={{ flex: 1, minWidth: 0 }}><b className="t-strong ell">{h.name}</b><span className="t-cap ell">{h.detail} · {ago(h.at)}</span></span>
-              <button className="ibtn grey sm" aria-label={`Play ${h.name}`} onClick={() => playItem(h)}><Play size={13} /></button>
-            </div>
-          ))}
-        </section>
-        <ServersPanel />
-        <FriendsPanel />
-      </div>
+      <HomeWidgets returning={returning} onHideTour={hideTour} history={history} onPlay={playItem} />
     </div>
   );
 }

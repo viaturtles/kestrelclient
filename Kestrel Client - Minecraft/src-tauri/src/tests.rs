@@ -79,8 +79,8 @@ fn reads_dot_minecraft() {
 
 #[test]
 fn crash_explanations_and_names() {
-    assert!(crate::launch::explain_crash("java.lang.OutOfMemoryError: Java heap space").unwrap().contains("memory"));
-    assert!(crate::launch::explain_crash("org.lwjgl.LWJGLException: Pixel format not accelerated").unwrap().contains("graphics"));
+    assert_eq!(crate::launch::explain_crash("java.lang.OutOfMemoryError: Java heap space").unwrap().1, "memory");
+    assert!(crate::launch::explain_crash("org.lwjgl.LWJGLException: Pixel format not accelerated").unwrap().0.contains("graphics"));
     assert!(crate::launch::explain_crash("all fine").is_none());
     assert_eq!(crate::import::clean_name("!     §3azura §8[§f16x§8].zip"), "azura [16x]");
     assert_eq!(crate::import::maven_path("optifine:OptiFine:1.8.9_HD_U_M5").unwrap(), "optifine/OptiFine/1.8.9_HD_U_M5/OptiFine-1.8.9_HD_U_M5.jar");

@@ -5,3 +5,7 @@ src-tauri/gen/
 reference/
 *.log
 
+
+src-tauri/core/lib/mc-*.jar
+src-tauri/core/out/
+.claude/settings.local.json

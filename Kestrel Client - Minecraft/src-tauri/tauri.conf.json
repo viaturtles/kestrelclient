@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost https://cdn.modrinth.com https://mc-heads.net https://cdn.discordapp.com; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src ipc: http://ipc.localhost asset: http://asset.localhost",
+      "csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost https://cdn.modrinth.com https://mc-heads.net https://cdn.discordapp.com https://kestrel-service.beruberhys.workers.dev; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src ipc: http://ipc.localhost asset: http://asset.localhost https://kestrel-service.beruberhys.workers.dev",
       "assetProtocol": {
         "enable": true,
         "scope": ["$DATA/Kestrel/instances/**"]

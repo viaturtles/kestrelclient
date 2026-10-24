@@ -32,6 +32,30 @@ fn public(s: &Saved) -> DiscordUser {
 #[tauri::command]
 pub fn discord_user() -> Option<DiscordUser> { load().map(|s| public(&s)) }
 
+fn save(s: &Saved) -> Res<()> {
+    let enc = dpapi(&serde_json::to_vec(s).unwrap(), true).ok_or("Couldn't protect the saved Discord sign-in")?;
+    std::fs::write(file(), enc).map_err(err("Save Discord account"))
+}
+
+/// The saved Discord access token (for Kestrel's own service only; never logged or sent to the page).
+pub(crate) fn access_token() -> Option<String> { load().map(|s| s.access_token) }
+
+/// Discord access tokens last about a week; this swaps the refresh token for a new pair.
+pub(crate) async fn refresh(http: &reqwest::Client) -> Res<String> {
+    let mut s = load().ok_or("Link your Discord account first (Settings → Discord).")?;
+    let id = crate::config::load().discord_app_id;
+    let t: Value = http.post("https://discord.com/api/v10/oauth2/token")
+        .form(&[("client_id", id.as_str()), ("grant_type", "refresh_token"), ("refresh_token", s.refresh_token.as_str())])
+        .send().await.map_err(err("Discord"))?.json().await.map_err(err("Discord"))?;
+    let (Some(access), Some(refresh)) = (t["access_token"].as_str(), t["refresh_token"].as_str()) else {
+        return Err("Your Discord sign-in expired. Link Discord again in Settings → Discord.".into());
+    };
+    s.access_token = access.into();
+    s.refresh_token = refresh.into();
+    save(&s)?;
+    Ok(s.access_token)
+}
+
 #[tauri::command]
 pub fn discord_unlink(state: State<'_, AppState>) -> Res<()> {
     let _ = std::fs::remove_file(file());
@@ -71,8 +95,7 @@ pub async fn discord_link(app: AppHandle, state: State<'_, AppState>) -> Res<Dis
         avatar: me["avatar"].as_str().map(String::from), access_token: access.into(), refresh_token: refresh.into(),
         linked_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
     };
-    let enc = dpapi(&serde_json::to_vec(&s).unwrap(), true).ok_or("Couldn't protect the saved Discord sign-in")?;
-    std::fs::write(file(), enc).map_err(err("Save Discord account"))?;
+    save(&s)?;
     write_log(&state, &format!("Linked Discord account {}", s.username));
     Ok(public(&s))
 }

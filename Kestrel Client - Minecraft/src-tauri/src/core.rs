@@ -95,6 +95,32 @@ impl AppState {
 }
 
 /// Appends a line to %APPDATA%\Kestrel\logs\launcher.log. Never contains tokens.
+/// Settings → Storage → "Keep logs for": starts a new launcher.log each day (the old one is kept as
+/// launcher-<unix secs>.log) and deletes logs and launch records older than `days` (None = forever).
+#[tauri::command]
+pub fn cleanup_logs(state: tauri::State<'_, AppState>, days: Option<u32>) -> Res<u32> {
+    let _g = state.log_lock.lock();
+    let dir = logs_dir();
+    let now = std::time::SystemTime::now();
+    let age_days = |p: &std::path::Path| p.metadata().and_then(|m| m.modified()).ok().and_then(|t| now.duration_since(t).ok()).map(|d| d.as_secs() / 86400);
+    let main = dir.join("launcher.log");
+    if age_days(&main).map(|d| d >= 1).unwrap_or(false) {
+        let secs = now.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let _ = std::fs::rename(&main, dir.join(format!("launcher-{secs}.log")));
+    }
+    let Some(days) = days else { return Ok(0) };
+    let mut removed = 0;
+    for folder in [dir.clone(), dir.join("launches")] {
+        let Ok(rd) = std::fs::read_dir(&folder) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if !p.is_file() || p == main || p.extension().map(|x| x != "log").unwrap_or(true) { continue; }
+            if age_days(&p).map(|d| d >= days as u64).unwrap_or(false) && std::fs::remove_file(&p).is_ok() { removed += 1; }
+        }
+    }
+    Ok(removed)
+}
+
 pub fn write_log(state: &AppState, line: &str) {
     let _g = state.log_lock.lock();
     let dir = logs_dir();
@@ -197,7 +223,12 @@ pub fn m_log(app: &AppHandle, state: &AppState, level: &str, line: &str) {
     mission(app, state, e);
 }
 pub fn m_state(app: &AppHandle, state: &AppState, st: &str, detail: &str) {
+    m_state_fix(app, state, st, detail, "");
+}
+/// A state with a one-click fix id for Launch Control (in `label`; see launch::explain_crash).
+pub fn m_state_fix(app: &AppHandle, state: &AppState, st: &str, detail: &str, fix: &str) {
     let mut e = MissionEvent::base("state");
     e.status = Some(st.into()); e.detail = Some(detail.into());
+    if !fix.is_empty() { e.label = Some(fix.into()); }
     mission(app, state, e);
 }

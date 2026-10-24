@@ -25,8 +25,7 @@ export type ContentKind = "mods" | "resourcepacks" | "shaderpacks" | "screenshot
 
 export type LaunchRequest = {
   instanceId: string; name: string; version: string; mode: string; memoryGb: number;
-  javaPath: string | null; jvmArgs: string; width: number; height: number; fullscreen: boolean; server: string | null; optifine: string | null; offlineName: string | null; world?: string | null; backupWorlds?: boolean;
-};
+  javaPath: string | null; jvmArgs: string; width: number; height: number; fullscreen: boolean; server: string | null; optifine: string | null; offlineName: string | null; world?: string | null; backupWorlds?: boolean;};
 export type AccountInfo = { name: string; uuid: string };
 export type DiscordUser = { id: string; username: string; displayName: string; avatarUrl?: string; linkedAt: number };
 export type Presence = { details: string; state: string; startMs?: number };
@@ -37,6 +36,25 @@ export type Identified = { file: string; sha1: string; projectId?: string; slug?
 export type World = { folder: string; name: string; lastPlayed: number; size: number; icon?: string; mode?: string };
 export type LaunchRecord = { file: string; title: string; time: number; outcome: string; status: string };
 export type Stats = { cpu: number; memoryMb: number };
+
+// ---- Kestrel online service (staff, bans, Plus, given cosmetics) ----
+export type StaffRole = "mod" | "admin" | "owner";
+/** Your Minecraft profile from Mojang: skin and owned capes, as data URLs (null fields when not set). */
+export type McProfile = { name: string; uuid: string; skin: string | null; slim: boolean; capes: { id: string; alias: string; active: boolean; image: string }[] };
+export type CapeInfo = { id: string; name: string; url: string | null; frames: number; fps: number };
+export type ServiceMe = { id: string; role: StaffRole | null; ban: { reason: string; until: number | null } | null; plus: { until: number | null } | null; cosmetics: string[]; cape: CapeInfo | null; minecraft: { uuid: string; name: string } | null };
+/** A friend (or a friend request) from Kestrel's service. */
+export type Friend = { id: string; name: string; mcUuid: string | null; avatar: string | null; online: boolean; playing: boolean; server: string | null; lastSeen: number };
+export type FriendsList = { friends: Friend[]; incoming: Friend[]; outgoing: Friend[] };
+export type StaffPlayerRow = { discord_id: string; username: string; global_name: string | null; avatar: string | null; last_seen: number };
+export type BanRow = { id: number; reason: string; until: number | null; by: string; at: number; lifted_by: string | null; lifted_at: number | null };
+export type StaffPlayer = StaffPlayerRow & { first_seen: number; role: StaffRole | null; ban: { id: number; reason: string; until: number | null; at: number } | null; plus: { until: number | null; at: number } | null; cosmetics: string[]; bans: BanRow[] };
+export type StaffMember = { discord_id: string; role: StaffRole; added_by?: string; added_at?: number; username?: string | null; global_name?: string | null; avatar?: string | null };
+export type LogRow = { id: number; at: number; actor: string; action: string; target: string | null; detail: string | null; actor_name: string | null; target_name: string | null };
+export const discordAvatar = (id: string, avatar: string | null | undefined) => (avatar ? `https://cdn.discordapp.com/avatars/${id}/${avatar}.png?size=64` : null);
+
+export type PlayStats = { seconds: number; sessions: number; longest: number; last: number; days: Record<string, number> };
+export type Backup = { file: string; world: string; time: number; size: number };
 
 export const api = {
   paths: () => call<Paths>("app_paths"),
@@ -50,6 +68,9 @@ export const api = {
   optifineList: () => call<string[]>("optifine_list"),
   optifineRunInstaller: (path: string) => call<void>("optifine_run_installer", { path }),
   optifineImport: (id: string) => call<string>("optifine_import", { id }),
+  /** Uses Kestrel's OptiFine, or installs one found in Downloads; installed: false = open `page` and ask again. */
+  optifineAuto: () => call<{ installed: boolean; id: string | null; page: string }>("optifine_auto"),
+  optifineReady: (id: string) => call<boolean>("optifine_ready", { id }),
   identifyContent: (id: string, kind: ContentKind, gameVersion: string) => call<Identified[]>("identify_content", { id, kind, gameVersion }),
   importFiles: (id: string, paths: string[]) => call<{ file: string; kind?: string; error?: string }[]>("import_files", { id, paths }),
   listWorlds: (id: string) => call<World[]>("list_worlds", { id }),
@@ -78,9 +99,27 @@ export const api = {
   launch: (req: LaunchRequest) => call<void>("launch_game", { req }),
   stopGame: () => call<void>("stop_game"),
   relaunchLast: (standard: boolean) => call<void>("relaunch_last", { standard }),
+  /** One-click crash fix from Launch Control (memory, jvm, java, natives, files, world, standard). */
+  relaunchFix: (fix: string) => call<void>("relaunch_fix", { fix }),
+  /** Play time per installation id. */
+  playStats: () => call<Record<string, PlayStats>>("play_stats"),
+  listBackups: (id: string) => call<Backup[]>("list_backups", { id }),
+  restoreBackup: (id: string, file: string) => call<string>("restore_backup", { id, file }),
+  applyLowEnd: (id: string) => call<void>("apply_low_end", { id }),
+  /** Deletes logs older than `days` (null = keep forever) and starts a new launcher.log each day. */
+  cleanupLogs: (days: number | null) => call<number>("cleanup_logs", { days }),
   getActivePacks: (id: string) => call<string[]>("get_active_packs", { id }),
   setActivePacks: (id: string, packs: string[]) => call<void>("set_active_packs", { id, packs }),
   missionSnapshot: () => call<MissionEvent[]>("mission_snapshot"),
+  minecraftProfile: () => call<McProfile | null>("minecraft_profile"),
+  /** Proves your Minecraft account to Kestrel's service (Mojang join / hasJoined) and links it to your Discord. */
+  linkMinecraft: () => call<string>("service_link_minecraft"),
+  /** Shows one of your Minecraft capes on your account (null hides it). */
+  minecraftSetCape: (cape: string | null) => call<void>("minecraft_set_cape", { cape }),
+  /** True when this build knows where Kestrel's online service is. */
+  serviceReady: () => (inApp ? call<boolean>("service_ready") : Promise.resolve(false)),
+  /** A call to Kestrel's service with the linked Discord account (attached by the backend). */
+  service: <T>(method: "GET" | "POST" | "DELETE", path: string, body?: unknown) => call<T>("service_call", { method, path, body: body ?? null }),
   installContent: (args: { instanceId: string; kind: ContentKind; url: string; filename: string; sha1?: string; sha512?: string; size?: number; title: string }) =>
     call<string>("install_content", { args }),
 };

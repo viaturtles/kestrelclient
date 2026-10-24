@@ -1,0 +1,17 @@
+name = "kestrel-service"
+main = "src/index.ts"
+compatibility_date = "2025-10-01"
+
+# Cape textures and other static files (public/capes/*.png → https://<service>/capes/*.png).
+[assets]
+directory = "./public"
+
+[vars]
+# Turtles' Discord user ID (Discord → Settings → Advanced → Developer Mode, then right-click yourself → Copy User ID).
+OWNER_DISCORD_ID = "416025539409739778"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kestrel"
+# Filled in by: npx wrangler d1 create kestrel
+database_id = "92aa0f10-bc4f-49ad-8a95-592a15e0e19d"

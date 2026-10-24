@@ -1,6 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { api, inApp, onJob, type AccountInfo, type DiscordUser, type Job, type JavaInstall, type Paths } from "./api";
+import { getVersion } from "@tauri-apps/api/app";
+import { api, inApp, onJob, onMission, type AccountInfo, type DiscordUser, type Job, type JavaInstall, type Paths, type ServiceMe, type McProfile } from "./api";
+import { headFromSkin } from "./skin";
 
 export type Mode = "Standard" | "OptiFine";
 export type Installation = {
@@ -16,9 +18,9 @@ export type Server = { id: string; name: string; address: string };
 export type HistoryItem = { kind: "server" | "world"; name: string; detail: string; version: string; at: number; serverAddress?: string; installationId?: string; icon?: string; folder?: string };
 
 export type Settings = {
-  reducedMotion: boolean; sectionTransitions: boolean; interfaceSounds: boolean; soundVolume: number;
+  reducedMotion: boolean; sectionTransitions: boolean;
   language: string; onGameStart: string; startOn: string; updateChannel: string; keepLogs: string;
-  notifyMode: "always" | "background" | "never"; notifyDownloads: boolean; notifyUpdates: boolean; notifyErrors: boolean; notifySounds: boolean;
+  notifyMode: "always" | "background" | "never"; notifyDownloads: boolean; notifyUpdates: boolean; notifyErrors: boolean;
   discordPresence: boolean; discordShowServer: boolean; discordHideIdle: boolean; discordInLauncher: boolean; crashReports: boolean;
   offlineName: string; backupBeforeLaunch: boolean;
   defaultMemoryGb: number; defaultWidth: number; defaultHeight: number; defaultFullscreen: boolean;
@@ -30,11 +32,14 @@ export type Route =
   | { name: "explore"; type?: string; target?: string }
   | { name: "project"; id: string; target?: string }
   | { name: "servers" }
+  | { name: "friends" }
+  | { name: "cosmetics" }
+  | { name: "staff"; tab?: string }
   | { name: "settings"; tab?: string }
   | { name: "updates" };
 
-export const SECTION_ORDER = ["home", "installations", "explore", "servers", "settings"] as const;
-export const sectionOf = (r: Route) => (r.name === "project" ? "explore" : r.name === "updates" || r.name === "servers" ? "home" : r.name);
+export const SECTION_ORDER = ["home", "installations", "explore", "servers", "friends", "cosmetics", "staff", "settings"] as const;
+export const sectionOf = (r: Route) => (r.name === "project" ? "explore" : r.name === "updates" ? "home" : r.name);
 
 /** Newest Minecraft version Kestrel supports; new installations start here. */
 export const LATEST_VERSION = "1.8.9";
@@ -51,9 +56,9 @@ export const COVERS: Record<string, { label: string; src: string }> = {
 };
 
 export const defaultSettings: Settings = {
-  reducedMotion: false, sectionTransitions: true, interfaceSounds: true, soundVolume: 0.5,
+  reducedMotion: false, sectionTransitions: true,
   language: "English", onGameStart: "Minimise Kestrel", startOn: "Home", updateChannel: "Stable", keepLogs: "14 days",
-  notifyMode: "background", notifyDownloads: true, notifyUpdates: true, notifyErrors: true, notifySounds: false,
+  notifyMode: "background", notifyDownloads: true, notifyUpdates: true, notifyErrors: true,
   discordPresence: true, discordShowServer: false, discordHideIdle: true, discordInLauncher: true, crashReports: false,
   offlineName: "Player", backupBeforeLaunch: false,
   defaultMemoryGb: 3, defaultWidth: 1280, defaultHeight: 720, defaultFullscreen: false,
@@ -100,7 +105,8 @@ function load(): Saved {
   return fallback;
 }
 
-export type Dialog = { title: string; body: React.ReactNode; wide?: boolean };
+/** sub: one line under the title. icon: shown in the tile left of the title. tone "danger" tints the tile red. */
+export type Dialog = { title: string; body: React.ReactNode; wide?: boolean; sub?: React.ReactNode; icon?: React.ReactNode; tone?: "danger" };
 
 function useAppState() {
   const [saved, setSaved] = useState<Saved>(load);
@@ -120,6 +126,32 @@ function useAppState() {
     api.accountStatus().then(setAccount).catch(() => {});
     api.discordUser().then(setDiscordUser).catch(() => {});
   }, []);
+  // Your Minecraft skin and capes from Mojang (signed-in players), plus your head cut from the skin.
+  const [mcProfile, setMcProfile] = useState<McProfile | null>(null);
+  const [head, setHead] = useState<string | null>(null);
+  const refreshMcProfile = useCallback(async () => {
+    if (!inApp || !account) { setMcProfile(null); setHead(null); return; }
+    try {
+      const p = await api.minecraftProfile();
+      setMcProfile(p);
+      setHead(p?.skin ? await headFromSkin(p.skin) : null);
+    } catch { setMcProfile(null); }
+  }, [account?.uuid]);
+  useEffect(() => { refreshMcProfile(); }, [refreshMcProfile]);
+  // Kestrel's online service: staff role, ban, Plus and given cosmetics for the linked Discord account.
+  const [me, setMe] = useState<ServiceMe | null>(null);
+  const refreshMe = useCallback(async () => {
+    if (!inApp || !discordUser || !(await api.serviceReady().catch(() => false))) { setMe(null); return; }
+    const v = await getVersion().catch(() => "");
+    api.service<ServiceMe>("GET", `/v1/me?v=${encodeURIComponent(v)}`).then(setMe).catch(() => setMe(null));
+  }, [discordUser?.id]);
+  useEffect(() => {
+    refreshMe();
+    const t = setInterval(refreshMe, 10 * 60000);
+    // A cape picked in game (and friends news) arrive with kestrel://me.
+    const un = inApp ? listen("kestrel://me", () => refreshMe()) : null;
+    return () => { clearInterval(t); un?.then((f) => f()); };
+  }, [refreshMe]);
 
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch { /* ignore */ } }, [saved]);
 
@@ -149,8 +181,51 @@ function useAppState() {
         return { ...s, history: [h, ...s.history.filter((x) => (x.serverAddress ?? "").toLowerCase() !== host.toLowerCase())].slice(0, 20) };
       });
     });
-    return () => { un.then((f) => f()); };
+    // A one-click crash fix from Launch Control (more memory, no Java arguments, automatic Java) is kept.
+    const unFix = listen<{ instanceId: string; memoryGb?: number; jvmArgs?: string; javaPath?: null }>("kestrel://fix", (e) => {
+      const { instanceId, ...patch } = e.payload;
+      setSaved((s) => ({ ...s, installations: s.installations.map((i) => (i.id === instanceId ? { ...i, ...patch } : i)) }));
+    });
+    return () => { un.then((f) => f()); unFix.then((f) => f()); };
   }, []);
+
+  // Link your Minecraft account to Kestrel once (needs Microsoft + Discord): friends find you by your
+  // Minecraft name, and other Kestrel players see your cape.
+  const linkTried = useRef("");
+  useEffect(() => {
+    if (!inApp || !me || !account) return;
+    const want = account.uuid.replace(/-/g, "").toLowerCase();
+    if (me.minecraft?.uuid?.toLowerCase() === want || linkTried.current === want) return;
+    linkTried.current = want;
+    api.linkMinecraft().then(() => refreshMe()).catch(() => {});
+  }, [me?.minecraft?.uuid, account?.uuid]);
+
+  // Presence for friends: in the launcher, or playing (and on which server), about once a minute.
+  const [playing, setPlaying] = useState<{ on: boolean; server: string | null }>({ on: false, server: null });
+  useEffect(() => {
+    if (!inApp) return;
+    const un = onMission((e) => {
+      if (e.kind !== "state") return;
+      if (e.status === "running") setPlaying((p) => ({ ...p, on: true }));
+      if (e.status === "exited" || e.status === "crashed") setPlaying({ on: false, server: null });
+    });
+    const unJoin = listen<{ host: string }>("kestrel://joined", (e) => setPlaying({ on: true, server: e.payload.host }));
+    return () => { un.then((f) => f()); unJoin.then((f) => f()); };
+  }, []);
+  useEffect(() => {
+    if (!inApp || !me) return;
+    const send = () => api.service("POST", "/v1/me/presence", { state: playing.on ? "playing" : "launcher", server: playing.server ?? "" }).catch(() => {});
+    send();
+    const t = setInterval(send, 60000);
+    return () => clearInterval(t);
+  }, [!!me, playing.on, playing.server]);
+
+  // Settings → Storage → "Keep logs for": clean up at start and whenever it changes.
+  useEffect(() => {
+    if (!inApp) return;
+    const days = parseInt(saved.settings.keepLogs, 10);
+    api.cleanupLogs(Number.isFinite(days) ? days : null).catch(() => {});
+  }, [saved.settings.keepLogs]);
 
   const navigate = useCallback((r: Route) => {
     setRoute((cur) => { if (JSON.stringify(cur) !== JSON.stringify(r)) { back.current.push(cur); fwd.current = []; } return r; });
@@ -181,9 +256,9 @@ function useAppState() {
   return useMemo(() => ({
     ...saved, selected, route, navigate, goBack, goForward, canBack: back.current.length > 0, canForward: fwd.current.length > 0, navTick,
     dialog, openDialog: setDialog, closeDialog: () => setDialog(null), toast, notify, jobs, clearJobs,
-    paths, setPaths, javas, setJavas, refreshJava, account, setAccount, discordUser, setDiscordUser,
+    paths, setPaths, javas, setJavas, refreshJava, account, setAccount, discordUser, setDiscordUser, me, refreshMe, mcProfile, head, refreshMcProfile,
     setSettings, updateInstallation, addInstallation, removeInstallation, selectInstallation, addServer, removeServer, addHistory,
-  }), [addHistory,saved, selected, route, navigate, goBack, goForward, navTick, dialog, toast, notify, jobs, clearJobs, paths, javas, refreshJava, account, discordUser,
+  }), [addHistory,saved, selected, route, navigate, goBack, goForward, navTick, dialog, toast, notify, jobs, clearJobs, paths, javas, refreshJava, account, discordUser, me, refreshMe, mcProfile, head, refreshMcProfile,
     setSettings, updateInstallation, addInstallation, removeInstallation, selectInstallation, addServer, removeServer]);
 }
 

@@ -204,6 +204,116 @@ pub async fn for_launch(http: &reqwest::Client) -> Res<Option<(String, String, S
     Ok(Some((s.name, s.uuid, s.mc_token)))
 }
 
+// ---------------- Minecraft profile: skin and capes ----------------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McCape { pub id: String, pub alias: String, pub active: bool, pub image: String }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McProfile { pub name: String, pub uuid: String, pub skin: Option<String>, pub slim: bool, pub capes: Vec<McCape> }
+
+/// A texture from Mojang as a data URL, so the page can draw it (textures.minecraft.net sends no CORS headers).
+async fn texture(http: &reqwest::Client, url: &str) -> Option<String> {
+    if !url.starts_with("http://textures.minecraft.net/") && !url.starts_with("https://textures.minecraft.net/") { return None; }
+    let b = http.get(url.replacen("http://", "https://", 1)).send().await.ok()?.error_for_status().ok()?.bytes().await.ok()?;
+    if b.len() > 2 * 1024 * 1024 || !b.starts_with(b"\x89PNG") { return None; }
+    Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&b)))
+}
+
+/// The signed-in player's skin and the Minecraft capes they own (from Mojang's profile API).
+#[tauri::command]
+pub async fn minecraft_profile(state: State<'_, AppState>) -> Res<Option<McProfile>> {
+    let http = &state.http;
+    let Some((name, uuid, token)) = for_launch(http).await? else { return Ok(None) };
+    let p: Value = http.get("https://api.minecraftservices.com/minecraft/profile").bearer_auth(&token).send().await.map_err(err("Minecraft profile"))?
+        .json().await.map_err(err("Minecraft profile"))?;
+    let skin = p["skins"].as_array().and_then(|s| s.iter().find(|x| x["state"] == "ACTIVE").cloned());
+    let skin_image = match skin.as_ref().and_then(|s| s["url"].as_str()) { Some(u) => texture(http, u).await, None => None };
+    let mut capes = Vec::new();
+    for c in p["capes"].as_array().cloned().unwrap_or_default() {
+        let (Some(id), Some(url)) = (c["id"].as_str(), c["url"].as_str()) else { continue };
+        if let Some(image) = texture(http, url).await {
+            capes.push(McCape { id: id.into(), alias: c["alias"].as_str().unwrap_or("Cape").into(), active: c["state"] == "ACTIVE", image });
+        }
+    }
+    Ok(Some(McProfile { name, uuid, skin: skin_image, slim: skin.is_some_and(|s| s["variant"] == "SLIM"), capes }))
+}
+
+/// Your Minecraft capes and skin for Kestrel Core: PNGs in `<kestrel>/mc-capes/<id>.png` and `<kestrel>/skin.png`,
+/// and the lines for cosmetics.properties (`mc.capes`, `mc.<id>.name`, `mc.equipped`, `skin.slim`). Empty when not signed in.
+pub(crate) async fn game_capes(http: &reqwest::Client, kestrel_dir: &std::path::Path) -> Res<String> {
+    let Some((_, _, token)) = for_launch(http).await? else { return Ok(String::new()) };
+    let p: Value = http.get("https://api.minecraftservices.com/minecraft/profile").bearer_auth(&token).send().await.map_err(err("Minecraft profile"))?
+        .json().await.map_err(err("Minecraft profile"))?;
+    // Your skin as <kestrel>/skin.png, so Kestrel Core's own player model (title screen, Cosmetics) never has to
+    // ask Mojang's session server, which rate-limits quick relaunches and then hands back Steve.
+    let skin_file = kestrel_dir.join("skin.png");
+    let skin = p["skins"].as_array().and_then(|s| s.iter().find(|x| x["state"] == "ACTIVE").cloned());
+    let mut skin_ok = false;
+    if let Some(url) = skin.as_ref().and_then(|s| s["url"].as_str()).filter(|u| u.contains("://textures.minecraft.net/")) {
+        if let Ok(r) = http.get(url.replacen("http://", "https://", 1)).send().await {
+            if let Ok(b) = r.bytes().await {
+                skin_ok = b.starts_with(b"\x89PNG") && b.len() < 2 * 1024 * 1024 && std::fs::write(&skin_file, &b).is_ok();
+            }
+        }
+    }
+    if !skin_ok { let _ = std::fs::remove_file(&skin_file); }
+    let slim = skin.is_some_and(|s| s["variant"] == "SLIM");
+    let dir = kestrel_dir.join("mc-capes");
+    std::fs::create_dir_all(&dir).map_err(err("Capes folder"))?;
+    let (mut ids, mut lines, mut active) = (Vec::new(), String::new(), String::new());
+    for c in p["capes"].as_array().cloned().unwrap_or_default() {
+        let (Some(id), Some(url)) = (c["id"].as_str(), c["url"].as_str()) else { continue };
+        if !id.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-') || !url.contains("://textures.minecraft.net/") { continue }
+        let Ok(r) = http.get(url.replacen("http://", "https://", 1)).send().await else { continue };
+        let Ok(b) = r.bytes().await else { continue };
+        if !b.starts_with(b"\x89PNG") { continue }
+        if std::fs::write(dir.join(format!("{id}.png")), &b).is_err() { continue }
+        let alias: String = c["alias"].as_str().unwrap_or("Cape").chars().filter(|ch| !ch.is_control()).collect();
+        lines += &format!("mc.{id}.name={alias}\n");
+        if c["state"] == "ACTIVE" { active = id.to_string(); }
+        ids.push(id.to_string());
+    }
+    Ok(format!("{lines}mc.capes={}\nmc.equipped={active}\nskin.slim={slim}\n", ids.join(",")))
+}
+
+/// Links your Minecraft account to your Kestrel (Discord) account on Kestrel's service, proven the way
+/// servers do it: Mojang's session server confirms you joined the one-time server id. No token leaves this PC
+/// except to Mojang. Returns the linked Minecraft name.
+#[tauri::command]
+pub async fn service_link_minecraft(state: State<'_, AppState>) -> Res<String> {
+    let http = &state.http;
+    let Some((name, uuid, token)) = for_launch(http).await? else { return Err("Sign in with Microsoft first.".into()) };
+    let start = crate::service::call(http, "POST", "/v1/me/minecraft/start", None).await?;
+    let sid = start["serverId"].as_str().ok_or("Kestrel's service didn't start the link")?;
+    let r = http.post("https://sessionserver.mojang.com/session/minecraft/join")
+        .json(&json!({ "accessToken": token, "selectedProfile": uuid.replace('-', ""), "serverId": sid })).send().await.map_err(err("Mojang"))?;
+    if !r.status().is_success() { return Err(format!("Mojang didn't accept the link ({})", r.status().as_u16())); }
+    crate::service::call(http, "POST", "/v1/me/minecraft/finish", Some(json!({ "name": name }))).await?;
+    write_log(&state, &format!("Linked Minecraft account {name} to Kestrel"));
+    Ok(name)
+}
+
+/// Shows one of your Minecraft capes (or none) on your Minecraft account.
+#[tauri::command]
+pub async fn minecraft_set_cape(state: State<'_, AppState>, cape: Option<String>) -> Res<()> {
+    set_cape(&state.http, cape.clone()).await?;
+    write_log(&state, if cape.is_some() { "Changed Minecraft cape" } else { "Hid Minecraft cape" });
+    Ok(())
+}
+
+pub(crate) async fn set_cape(http: &reqwest::Client, cape: Option<String>) -> Res<()> {
+    let Some((_, _, token)) = for_launch(http).await? else { return Err("Sign in with Microsoft first.".into()) };
+    let url = "https://api.minecraftservices.com/minecraft/profile/capes/active";
+    let r = match &cape {
+        Some(id) => http.put(url).bearer_auth(&token).json(&json!({ "capeId": id })).send().await,
+        None => http.delete(url).bearer_auth(&token).send().await,
+    }.map_err(err("Minecraft profile"))?;
+    if !r.status().is_success() { return Err(format!("Mojang didn't change the cape ({})", r.status().as_u16())); }
+    Ok(())
+}
+
 /// Offline player UUID, the same way vanilla Minecraft makes one.
 pub fn offline_uuid(name: &str) -> String {
     let mut b: [u8; 16] = md5::Md5::digest(format!("OfflinePlayer:{name}").as_bytes()).into();

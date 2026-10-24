@@ -1,12 +1,13 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlertTriangle, ArrowDownToLine, Bell,ChevronDown, ChevronLeft, ChevronRight, Download, Folder, FolderOpen, Gamepad2, Globe, House, Images, Info, LogIn, LogOut, MessageCircle, Minus, Palette, Puzzle, RefreshCw, RotateCcw, Scale, Settings as Gear, Square, User, X, FileText, MonitorPlay } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, Bell,ChevronDown, ChevronLeft, ChevronRight, Download, Folder, FolderOpen, Gamepad2, Globe, House, Images, Info, LogIn, LogOut, MessageCircle, Minus, Palette, Puzzle, RefreshCw, RotateCcw, Settings as Gear, Square, User, X, FileText, MonitorPlay, Server as ServerIcon, Shirt, ShieldCheck, Ban, Users } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, inApp, onMission } from "../lib/api";
+import { getVersion } from "@tauri-apps/api/app";
+import { api, inApp, onJob, onMission } from "../lib/api";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { checkForUpdate, installUpdate } from "../lib/updates";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { openMissionControl } from "../lib/launch";
-import { sfx } from "../lib/sfx";
+import { MICROSOFT_SIGN_IN_OPEN } from "../lib/config";
 import { SECTION_ORDER, sectionOf, useApp, type Route } from "../lib/store";
 import { windowAction, type WindowAction } from "../native";
 import { useDismiss } from "./ui";
@@ -14,6 +15,9 @@ import { Home } from "../pages/Home";
 import { Installations } from "../pages/Installations";
 import { Explore, ProjectPage } from "../pages/Explore";
 import { Servers } from "../pages/Servers";
+import { Cosmetics } from "../pages/Cosmetics";
+import { Friends } from "../pages/Friends";
+import { Staff } from "../pages/Staff";
 import { SettingsPage } from "../pages/Settings";
 import { Updates, POSTS, unreadNews, markNewsRead } from "../pages/Updates";
 
@@ -21,10 +25,13 @@ const RAIL = [
   { section: "home", label: "Home", icon: House, route: { name: "home" } as Route },
   { section: "installations", label: "Installations", icon: Folder, route: { name: "installations" } as Route },
   { section: "explore", label: "Explore", icon: Puzzle, route: { name: "explore" } as Route },
+  { section: "servers", label: "Servers", icon: ServerIcon, route: { name: "servers" } as Route },
+  { section: "friends", label: "Friends", icon: Users, route: { name: "friends" } as Route },
+  { section: "cosmetics", label: "Cosmetics", icon: Shirt, route: { name: "cosmetics" } as Route },
 ];
 
 const PRESENCE: Record<string, string> = {
-  home: "On the home screen", installations: "Setting up installations", explore: "Browsing mods and packs", servers: "Picking a server", settings: "Changing settings",
+  home: "On the home screen", installations: "Setting up installations", explore: "Browsing mods and packs", servers: "Picking a server", friends: "Checking on friends", cosmetics: "Looking at cosmetics", settings: "Changing settings",
 };
 
 function crumbFor(r: Route, app: ReturnType<typeof useApp>) {
@@ -35,6 +42,9 @@ function crumbFor(r: Route, app: ReturnType<typeof useApp>) {
     case "explore": return "Explore";
     case "project": return "Explore / Project";
     case "servers": return "Servers";
+    case "friends": return "Friends";
+    case "cosmetics": return "Cosmetics";
+    case "staff": return `Staff / ${r.tab ?? "Players"}`;
     case "settings": return `Settings / ${r.tab ?? "General"}`;
   }
 }
@@ -46,6 +56,9 @@ function PageFor({ route }: { route: Route }) {
     case "explore": return <Explore type={route.type} target={route.target} />;
     case "project": return <ProjectPage id={route.id} target={route.target} />;
     case "servers": return <Servers />;
+    case "friends": return <Friends />;
+    case "cosmetics": return <Cosmetics />;
+    case "staff": return <Staff tab={route.tab} />;
     case "settings": return <SettingsPage tab={route.tab} />;
     case "updates": return <Updates />;
   }
@@ -109,7 +122,7 @@ export function Shell() {
   // coming back to Kestrel (or clicking it) opens the update prompt. Ignored updates install on next start.
   const [update, setUpdate] = useState<Update | null>(null);
   const announced = useRef<string | null>(null), promptPending = useRef(false);
-  const openUpdatePrompt = (u: Update) => { promptPending.current = false; app.openDialog({ title: "Update available", body: <UpdatePrompt update={u} /> }); };
+  const openUpdatePrompt = (u: Update) => { promptPending.current = false; updateDialog(app, u); };
   const runUpdateCheck = (manual: boolean) => checkForUpdate().then(async (u) => {
     setUpdate(u);
     if (manual) { if (u) openUpdatePrompt(u); else app.notify("You're on the latest version of Kestrel."); return; }
@@ -117,7 +130,7 @@ export function Shell() {
     announced.current = u.version;
     if (await getCurrentWindow().isFocused()) { openUpdatePrompt(u); return; }
     promptPending.current = true;
-    if (settingsRef.current.notifyUpdates && settingsRef.current.notifyMode !== "never") notifyWindows("Kestrel update available", `Version ${u.version} is ready. Open Kestrel to update.`);
+    if (settingsRef.current.notifyUpdates) notifyIfWanted(settingsRef.current.notifyMode, "Kestrel update available", `Version ${u.version} is ready. Open Kestrel to update.`);
   }).catch(() => { if (manual) app.notify("Couldn't check for updates. Check your internet connection.", "error"); });
   useEffect(() => {
     if (!inApp) return;
@@ -129,11 +142,30 @@ export function Shell() {
   }, []);
   const updateRef = useRef<Update | null>(null); updateRef.current = update;
   const settingsRef = useRef(app.settings); settingsRef.current = app.settings;
+  // Windows notifications for finished downloads and for errors (Settings → Notifications).
+  useEffect(() => {
+    if (!inApp) return;
+    const said = new Set<string>();
+    const unJob = onJob((j) => {
+      const st = settingsRef.current;
+      if (j.state === "running" || said.has(j.id + j.state)) return;
+      said.add(j.id + j.state);
+      if (j.state === "done" && st.notifyDownloads) notifyIfWanted(st.notifyMode, "Download finished", j.title);
+      if (j.state === "failed" && st.notifyErrors) notifyIfWanted(st.notifyMode, `Couldn't finish: ${j.title}`, j.detail || "Open Kestrel to see what happened.");
+    });
+    const unMission = onMission((e) => {
+      const st = settingsRef.current;
+      if (e.kind !== "state" || !st.notifyErrors) return;
+      if (e.status === "failed") notifyIfWanted(st.notifyMode, "Minecraft couldn't start", e.detail ?? "Open Launch Control to see why.");
+      if (e.status === "crashed") notifyIfWanted(st.notifyMode, "Minecraft crashed", e.detail ?? "Open Launch Control to see why.");
+    });
+    return () => { unJob.then((f) => f()); unMission.then((f) => f()); };
+  }, []);
   // Ctrl+1 / 2 / 3 jump between sections.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.altKey || e.shiftKey) return;
-      const i = ["1", "2", "3"].indexOf(e.key); if (i < 0) return;
+      const i = ["1", "2", "3", "4", "5", "6"].indexOf(e.key); if (i < 0) return;
       e.preventDefault(); go(RAIL[i].route);
     };
     window.addEventListener("keydown", onKey);
@@ -143,7 +175,8 @@ export function Shell() {
   useEffect(() => {
     if (inApp) api.discordLauncher({ details: "In the Kestrel launcher", state: PRESENCE[section] ?? "", startMs: openedAt.current }).catch(() => {});
   }, [section]);
-  const avatar = app.account ? `https://mc-heads.net/avatar/${app.account.uuid}/64` : "/assets/imgYourMinecraftPfp.png";
+  // Your real head from your Mojang skin once it's loaded.
+  const avatar = app.head ?? (app.account ? `https://mc-heads.net/avatar/${app.account.uuid}/64` : "/assets/imgYourMinecraftPfp.png");
 
   // Keep the breadcrumb in sync when an installation is renamed.
   useEffect(() => { setCrumb(crumbFor(app.route, app)); }, [app.installations]);
@@ -173,20 +206,26 @@ export function Shell() {
     a.onfinish = () => { sw.hidden = true; a.cancel(); busy.current = false; };
   }
 
-  // Sounds for finished / failed downloads.
-  const prevJobs = useRef<Record<string, string>>({});
-  useEffect(() => {
-    for (const j of app.jobs) {
-      const before = prevJobs.current[j.id];
-      if (before === "running" && j.state !== "running" && s.interfaceSounds) {
-        if (j.state === "done") sfx.done(s.soundVolume); else if (j.state === "failed") sfx.error(s.soundVolume);
-      }
-      prevJobs.current[j.id] = j.state;
-    }
-  }, [app.jobs]);
 
   const control = (a: WindowAction) => void windowAction(a).catch((e) => app.notify(e instanceof Error ? e.message : "Window action failed.", "error"));
   const running = app.jobs.filter((j) => j.state === "running");
+
+  // Status box in the top bar: only while something is happening (game starting/running, downloads).
+  const [game, setGame] = useState<{ state: string; detail: string; since: number }>({ state: "idle", detail: "", since: 0 });
+  useEffect(() => {
+    const un = onMission((e) => { if (e.kind === "state") setGame((g) => ({ state: e.status ?? "idle", detail: e.detail ?? "", since: g.state === e.status ? g.since : Date.now() })); });
+    return () => { un.then((f) => f()); };
+  }, []);
+  const [, tick] = useState(0);
+  useEffect(() => { if (game.state !== "running") return; const t = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(t); }, [game.state]);
+  const mins = Math.floor((Date.now() - game.since) / 60000);
+  const dl = running[0];
+  const status: { title: string; detail?: string; pct?: number; hint?: string; onClick: () => void } | null =
+    game.state === "running" ? { title: "Minecraft running", detail: `${app.selected.name} · ${mins < 1 ? "just started" : `${mins} min`}`, hint: "Open Launch Control", onClick: () => void openMissionControl() }
+    : game.state === "preparing" ? { title: "Starting Minecraft", detail: game.detail, hint: "Open Launch Control", onClick: () => void openMissionControl() }
+    : dl ? { title: `Downloading · ${dl.title}`, detail: running.length > 1 ? `+${running.length - 1} more` : dl.total ? `${Math.round((dl.done / dl.total) * 100)}%` : undefined,
+        pct: dl.total ? (dl.done / dl.total) * 100 : undefined, hint: "Open Downloads", onClick: () => setMenu("downloads") }
+    : null;
   const go = (r: Route) => { setMenu(""); app.navigate(r); };
 
   return (
@@ -198,7 +237,6 @@ export function Shell() {
           </button>} style={{ left: 0, top: 34, width: 240 }}>
           <MI icon={<Info size={16} />} onClick={() => { setMenu(""); aboutDialog(app); }}>About Kestrel</MI>
           <MI icon={<RefreshCw size={16} />} onClick={() => { setMenu(""); runUpdateCheck(true); }}>Check for updates</MI>
-          <MI icon={<Scale size={16} />} onClick={() => { setMenu(""); licencesDialog(app); }}>Licences</MI>
           <div className="sep" />
           <MI icon={<MonitorPlay size={16} />} onClick={() => { setMenu(""); void openMissionControl(); }}>Launch Control</MI>
           <MI icon={<FileText size={16} />} onClick={() => { setMenu(""); api.openFolder("logs").catch((e) => app.notify(e.message, "error")); }}>Open logs folder</MI>
@@ -207,11 +245,12 @@ export function Shell() {
           <MI icon={<RotateCcw size={16} />} onClick={() => location.reload()}>Restart Kestrel</MI>
           <MI icon={<Gear size={16} />} onClick={() => go({ name: "settings" })}>Settings</MI>
         </MenuAnchor>
-        <div className="histnav">
-          <button aria-label="Back" disabled={!app.canBack} onClick={app.goBack}><ChevronLeft size={15} /></button>
-          <button aria-label="Forward" disabled={!app.canForward} onClick={app.goForward}><ChevronRight size={15} /></button>
-          <span className={"crumb" + (crumbSwap ? " swap" : "")}>{crumb}</span>
-        </div>
+        {status && (
+          <button className="statusbox" title={status.hint} onClick={status.onClick}>
+            <b>{status.title}</b>{status.detail && <span>{status.detail}</span>}
+            {status.pct !== undefined && <i style={{ width: `${Math.max(3, status.pct)}%` }} />}
+          </button>
+        )}
         <div className="drag" onMouseDown={(e) => { if (e.button === 0 && e.detail === 1) control("startDragging"); }} />
         {update && (
           <button className="updbtn" aria-label={`Update Kestrel to ${update.version}`} title={`Update to ${update.version}`} onClick={() => openUpdatePrompt(update)}>
@@ -249,7 +288,7 @@ export function Shell() {
       <nav className="rail" aria-label="Sections" ref={railRef}>
         <span className="railpill" style={{ transform: `translateY(${pillY}px)` }} />
         <div className="top">
-          {RAIL.map(({ section: sec, label, icon: Icon, route }) => (
+          {[...RAIL, ...(app.me?.role ? [{ section: "staff", label: "Staff", icon: ShieldCheck, route: { name: "staff" } as Route }] : [])].map(({ section: sec, label, icon: Icon, route }) => (
             <button key={sec} data-section={sec} className={"rb" + (section === sec ? " on" : "")} aria-label={label} aria-current={section === sec ? "page" : undefined} onClick={() => go(route)}>
               <Icon size={20} /><span className="tip">{label}</span>
             </button>
@@ -285,6 +324,18 @@ export function Shell() {
 
       <main className="panel" ref={panel}>
         <div className="page" key={JSON.stringify(shown)}><PageFor route={shown} /></div>
+        {app.me?.ban && (
+          // Kestrel ban (from the staff panel): the launcher stays closed to this account until it ends.
+          <div className="banned">
+            <div>
+              <span className="dtile danger" style={{ width: 52, height: 52, borderRadius: 12 }}><Ban size={24} /></span>
+              <h2>You're banned from Kestrel</h2>
+              <p>{app.me.ban.reason}</p>
+              <span className="t-cap">{app.me.ban.until === null ? "This ban is permanent." : `Ends ${new Date(app.me.ban.until * 1000).toLocaleString()}.`} If you think it's a mistake, ask in the Kestrel Discord.</span>
+              <button className="btn" onClick={() => app.refreshMe()}><RefreshCw size={14} />Check again</button>
+            </div>
+          </div>
+        )}
         <div className="sweep" ref={sweepRef} hidden>
           <div className="track"><div className="cars">
             <div className="car c3" /><div className="car body"><div className="mark"><img src="/assets/imgKestrelOriginalWhiteBird.svg" alt="" /><span>KESTREL</span></div></div><div className="car c2" /><div className="car c1" />
@@ -342,21 +393,34 @@ function UpdatePrompt({ update }: { update: Update }) {
     setProgress(0);
     installUpdate(update, setProgress).catch((e) => { setProgress(null); app.notify(`Update failed: ${e instanceof Error ? e.message : e}`, "error"); });
   };
+  const items = notes.split("\n").map((l) => l.replace(/^\s*[-*•]\s*/, "").trim()).filter(Boolean);
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <img src="/assets/imgKestrelOriginalWhiteBird.svg" alt="" style={{ width: 40, height: 40 }} />
-        <div><b className="t-heading">Kestrel {update.version}</b><div className="t-cap">You have {update.currentVersion}. Kestrel restarts to finish.</div></div>
-      </div>
-      {notes && <div className="muted" style={{ maxHeight: 200, overflowY: "auto", whiteSpace: "pre-wrap", lineHeight: "20px", background: "var(--surface)", borderRadius: 10, padding: "12px 14px", fontSize: 13 }}>{notes}</div>}
+      {items.length > 0 && (
+        <div className="inset" style={{ maxHeight: 220, overflowY: "auto" }}>
+          <span className="gt" style={{ fontSize: 11, fontWeight: 600, letterSpacing: ".06em", color: "var(--text3)" }}>WHAT'S NEW</span>
+          <ul className="bullets" style={{ margin: 0, padding: 0 }}>{items.map((t, i) => <li key={i}>{t}</li>)}</ul>
+        </div>
+      )}
       {progress !== null && <div className="progress"><span style={{ width: `${Math.max(4, Math.round(progress * 100))}%` }} /></div>}
       <div className="actions">
-        <span className="t-cap" style={{ flex: 1 }}>{progress === null ? "Not now? It installs next time you open Kestrel." : `Downloading… ${Math.round(progress * 100)}%`}</span>
+        {progress !== null && <span className="t-cap" style={{ flex: 1 }}>Downloading… {Math.round(progress * 100)}%</span>}
         <button className="btn ghost" disabled={progress !== null} onClick={app.closeDialog}>Later</button>
-        <button className="btn green" disabled={progress !== null} onClick={go}><RefreshCw size={15} />Relaunch and update</button>
+        <button className="btn green" disabled={progress !== null} onClick={go}><RefreshCw size={15} />Restart and update</button>
       </div>
     </>
   );
+}
+
+export function updateDialog(app: ReturnType<typeof useApp>, u: Update) {
+  app.openDialog({ title: `Kestrel ${u.version} is ready`, sub: `You have ${u.currentVersion}. Kestrel restarts to finish.`, icon: <ArrowDownToLine size={18} />, body: <UpdatePrompt update={u} /> });
+}
+
+/** Sends a Windows notification if Settings → Notifications allows it right now ("background" = only while Kestrel isn't focused). */
+async function notifyIfWanted(mode: "always" | "background" | "never", title: string, body: string) {
+  if (mode === "never") return;
+  if (mode === "background" && (await getCurrentWindow().isFocused().catch(() => false))) return;
+  await notifyWindows(title, body);
 }
 
 /** Windows notification (asks for permission the first time). Returns false if Windows won't allow it. */
@@ -369,61 +433,67 @@ export async function notifyWindows(title: string, body: string): Promise<boolea
   } catch { return false; /* notifications off: the title-bar button still shows the update */ }
 }
 
+const SIGN_IN = { title: "Sign in with Microsoft", sub: "Use the account that owns Minecraft: Java Edition.", icon: <LogIn size={18} /> };
+
 export function signInDialog(app: ReturnType<typeof useApp>) {
-  app.openDialog({ title: "Sign in with Microsoft", body: <SignIn app={app} /> });
+  if (!MICROSOFT_SIGN_IN_OPEN) {
+    app.openDialog({ title: "Microsoft sign-in is almost here", sub: "Kestrel is waiting for Mojang to approve it.", icon: <LogIn size={18} />, body: (
+      <>
+        <div className="inset"><p className="note" style={{ color: "var(--text2)", fontSize: 13, lineHeight: "18px" }}>Until then you can play singleplayer offline with the name in Settings → Account. Online servers like Hypixel, and Friends, need sign-in.</p></div>
+        <div className="actions"><button className="btn" onClick={app.closeDialog}>Got it</button></div>
+      </>
+    ) });
+    return;
+  }
+  app.openDialog({ ...SIGN_IN, body: <SignIn app={app} /> });
 }
 
 function SignIn({ app }: { app: ReturnType<typeof useApp> }) {
   const [phase, setPhase] = useState<"idle" | "waiting" | "error">("idle");
   const [error, setError] = useState("");
+  // Same body element each time, so React keeps this component's state while the header changes.
+  const header = (h: typeof SIGN_IN) => app.openDialog({ ...h, body: <SignIn app={app} /> });
   const start = async () => {
     setPhase("waiting");
+    header({ title: "Waiting for your browser", sub: "Finish signing in there. This updates by itself.", icon: <Globe size={18} /> });
     try {
       const a = await api.signIn();
       app.setAccount(a); app.closeDialog(); app.notify(`Signed in as ${a.name}.`);
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); setPhase("error"); }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); setPhase("error"); header(SIGN_IN); }
   };
   const needsId = error.includes("client ID");
   return (
     <>
-      <p className="muted" style={{ lineHeight: "20px" }}>Kestrel opens Microsoft's own sign-in page in your browser, so it never sees your password. Use the account that owns Minecraft: Java Edition.</p>
-      {phase === "waiting" && <div className="notice"><span className="spinner" /><span>Finish signing in in your browser. This window updates by itself.</span></div>}
+      {phase === "waiting" ? <div className="indet" />
+        : <div className="inset"><p className="note" style={{ color: "var(--text2)", fontSize: 13, lineHeight: "18px" }}>Your password goes to Microsoft in your browser, never to Kestrel. Without signing in you can still play singleplayer offline.</p></div>}
       {phase === "error" && <div className="mcrash" style={{ margin: 0 }}><AlertTriangle size={16} /><div>{error}</div></div>}
-      <p className="t-cap">Not signed in? You can still launch offline for singleplayer. Online servers like Hypixel need Microsoft sign-in.</p>
       <div className="actions">
-        <button className="btn ghost" onClick={app.closeDialog}>{phase === "waiting" ? "Cancel" : "Close"}</button>
-        {needsId ? <button className="btn" onClick={() => { app.closeDialog(); app.navigate({ name: "settings", tab: "Account" }); }}>Open settings</button>
-          : <button className="btn green" disabled={!inApp || phase === "waiting"} onClick={start}><LogIn size={15} />{phase === "error" ? "Try again" : "Open Microsoft sign-in"}</button>}
+        {phase === "waiting" ? <button className="btn ghost" onClick={app.closeDialog}>Cancel</button>
+          : <button className="btn ghost" onClick={app.closeDialog}>Play offline</button>}
+        {phase !== "waiting" && (needsId ? <button className="btn" onClick={() => { app.closeDialog(); app.navigate({ name: "settings", tab: "Account" }); }}>Open settings</button>
+          : <button className="btn green" disabled={!inApp} onClick={start}><LogIn size={15} />{phase === "error" ? "Try again" : "Continue in browser"}</button>)}
       </div>
     </>
   );
 }
 
-function aboutDialog(app: ReturnType<typeof useApp>) {
-  app.openDialog({ title: "About Kestrel", body: (
+function About() {
+  const app = useApp();
+  return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <img src="/assets/imgKestrelOriginalWhiteBird.svg" alt="" style={{ width: 44, height: 44 }} />
-        <div><b className="t-heading">Kestrel</b><div className="t-cap">Private build 0.1 · Windows</div></div>
+      <div className="inset rows">
+        <div><span>Game files and Java</span><span>Mojang</span></div>
+        <div><span>Mods, packs and shaders</span><span>Modrinth</span></div>
+        <div><span>Built with</span><span>Tauri, React, Lucide, Inter</span></div>
+        <div><span>Licences</span><span>MIT · Apache-2.0 · ISC · OFL</span></div>
       </div>
-      <p className="muted" style={{ lineHeight: "20px" }}>A launcher for Minecraft: Java Edition. Game files and Java come straight from Mojang; mods, packs and shaders from Modrinth.</p>
-      <p className="t-cap">Not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang Synergies AB.</p>
+      <p className="note">Not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang Synergies AB. Hypixel, OptiFine and Modrinth project names and art belong to their owners.</p>
       <div className="actions"><button className="btn" onClick={app.closeDialog}>Close</button></div>
     </>
-  ) });
+  );
 }
 
-function licencesDialog(app: ReturnType<typeof useApp>) {
-  app.openDialog({ title: "Licences", body: (
-    <>
-      <ul className="muted" style={{ margin: 0, paddingLeft: 18, lineHeight: "22px" }}>
-        <li>Tauri, React, Vite — MIT / Apache-2.0</li>
-        <li>Lucide icons — ISC</li>
-        <li>Inter typeface — SIL Open Font License</li>
-        <li>Project icons, art and text in Explore belong to their Modrinth authors</li>
-        <li>Hypixel and OptiFine names and logos belong to their owners</li>
-      </ul>
-      <div className="actions"><button className="btn" onClick={app.closeDialog}>Close</button></div>
-    </>
-  ) });
+async function aboutDialog(app: ReturnType<typeof useApp>) {
+  const v = inApp ? await getVersion().catch(() => "") : "";
+  app.openDialog({ title: v ? `Kestrel ${v}` : "Kestrel", sub: "Minecraft launcher for Windows", icon: <img src="/assets/imgKestrelOriginalWhiteBird.svg" alt="" style={{ width: 22, height: 22 }} />, body: <About /> });
 }

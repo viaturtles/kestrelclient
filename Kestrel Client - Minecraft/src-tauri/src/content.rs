@@ -206,6 +206,65 @@ pub fn backup_blocking(id: &str, folder: &str, keep: Option<usize>) -> Res<std::
     Ok(dest)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Backup { pub file: String, pub world: String, pub time: u64, pub size: u64 }
+
+/// "<world folder>-<unix seconds>.zip" → (world folder, seconds).
+fn backup_name(file: &str) -> Option<(String, u64)> {
+    let stem = file.strip_suffix(".zip")?;
+    let (world, secs) = stem.rsplit_once('-')?;
+    Some((world.to_string(), secs.parse().ok()?))
+}
+
+/// An installation's world backups, newest first.
+#[tauri::command]
+pub fn list_backups(id: String) -> Res<Vec<Backup>> {
+    let dir = data_dir().join("backups").join(safe_id(&id)?);
+    let mut out: Vec<Backup> = std::fs::read_dir(&dir).map(|rd| rd.flatten().filter_map(|e| {
+        let file = e.file_name().to_string_lossy().to_string();
+        let (world, time) = backup_name(&file)?;
+        Some(Backup { file, world, time, size: e.metadata().map(|m| m.len()).unwrap_or(0) })
+    }).collect()).unwrap_or_default();
+    out.sort_by(|a, b| b.time.cmp(&a.time));
+    Ok(out)
+}
+
+/// Puts a backup back. The world as it is now is backed up first, so a restore can be undone.
+#[tauri::command]
+pub async fn restore_backup(state: State<'_, AppState>, id: String, file: String) -> Res<String> {
+    safe_file_name(&file)?;
+    let (world, _) = backup_name(&file).ok_or("That isn't a Kestrel backup")?;
+    safe_file_name(&world)?;
+    if state.game.lock().await.as_ref().map(|g| g.instance_id == id).unwrap_or(false) {
+        return Err("Close Minecraft first, so the world isn't in use.".into());
+    }
+    let (i2, w2, file2) = (id.clone(), world.clone(), file.clone());
+    tokio::task::spawn_blocking(move || -> Res<()> {
+        let saves = instance_dir(&i2)?.join("saves");
+        let target = saves.join(&w2);
+        if target.join("level.dat").is_file() {
+            backup_blocking(&i2, &w2, None)?;
+            std::fs::remove_dir_all(&target).map_err(err("Replace world"))?;
+        }
+        let zip = data_dir().join("backups").join(&i2).join(&file2);
+        let mut a = zip::ZipArchive::new(std::fs::File::open(&zip).map_err(err("Open backup"))?).map_err(err("Read backup"))?;
+        for i in 0..a.len() {
+            let mut f = a.by_index(i).map_err(err("Read backup"))?;
+            // Every entry sits inside the world's folder; anything else is skipped.
+            let Some(rel) = f.enclosed_name() else { continue };
+            if !rel.starts_with(&w2) || f.is_dir() { continue; }
+            let out = saves.join(rel);
+            if let Some(p) = out.parent() { std::fs::create_dir_all(p).map_err(err("Restore world"))?; }
+            let mut o = std::fs::File::create(&out).map_err(err("Restore world"))?;
+            std::io::copy(&mut f, &mut o).map_err(err("Restore world"))?;
+        }
+        Ok(())
+    }).await.map_err(err("Restore"))??;
+    write_log(&state, &format!("Restored {world} in {id} from {file}"));
+    Ok(world)
+}
+
 /// Resource packs Minecraft has turned on (options.txt `resourcePacks:[...]`, top of the list first).
 #[tauri::command]
 pub fn get_active_packs(id: String) -> Res<Vec<String>> {

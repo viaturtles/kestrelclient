@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { ArchiveRestore, ArrowUpCircle, Clock, Copy, Download, FileDown, FileUp, FolderOpen, Image as ImageIcon, Info, Package, Plus, Search, SlidersHorizontal, Sparkles, Trash2, Globe, Puzzle, Eye, Upload, Play, Check, ClipboardCopy } from "lucide-react";
-import { api, fileUrl, formatBytes, inApp, DESKTOP_ONLY, type ContentFile, type ContentKind, type Identified, type World } from "../lib/api";
+import { ChevronRight, ArchiveRestore, ArrowUpCircle, Gauge, Copy, Download, FileDown, FileUp, FolderOpen, Image as ImageIcon, Info, Package, Plus, Search, SlidersHorizontal, Sparkles, Trash2, Globe, Puzzle, Eye, Upload, Play, Check, ClipboardCopy } from "lucide-react";
+import { api, fileUrl, formatBytes, inApp, DESKTOP_ONLY, type ContentFile, type ContentKind, type Identified, type World, type Backup, type PlayStats } from "../lib/api";
 import { COVERS, errText, makeInstallation, useApp, type AppState, type Installation, type Mode } from "../lib/store";
 import { launchInstallation } from "../lib/launch";
 import { confirmDialog, Group, Row, Seg, Select, Toggle } from "../components/ui";
@@ -36,20 +36,19 @@ export function Installations({ id, tab }: { id?: string; tab?: string }) {
           </div>
         </div>
         <label className="search"><Search size={16} /><input placeholder="Search installations" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search installations" /></label>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {list.map((i) => {
             const on = i.id === inst.id;
             return (
-              <button key={i.id} onClick={() => { app.selectInstallation(i.id); app.navigate({ name: "installations", id: i.id, tab: current }); }}
-                style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 10px 8px 8px", borderRadius: 10, textAlign: "left", transition: "background var(--fast)",
-                  background: on ? "var(--control)" : "transparent", boxShadow: on ? "inset 0 0 0 1px rgba(255,255,255,.14)" : "none" }}>
-                <img src={(COVERS[i.cover] ?? COVERS.hypixel).src} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover" }} />
-                <span style={{ flex: 1, minWidth: 0 }}><b className="t-strong" style={{ display: "block", color: on ? "var(--text)" : "var(--text2)" }}>{i.name}</b><span className="t-cap">{i.version} · {i.mode}</span></span>
-                {app.selected.id === i.id && <span className="chip green">Selected</span>}
+              <button key={i.id} className={"icard" + (on ? " on" : "")} style={{ backgroundImage: `url(${(COVERS[i.cover] ?? COVERS.hypixel).src})` }}
+                onClick={() => { app.selectInstallation(i.id); app.navigate({ name: "installations", id: i.id, tab: current }); }}>
+                <span className="icard-tx"><b>{i.name}</b><span>{i.version} · {i.mode}</span></span>
+                {app.selected.id === i.id && <span className="icard-sel">SELECTED</span>}
               </button>
             );
           })}
           {!list.length && <span className="t-cap" style={{ padding: 8 }}>No installations match “{q}”.</span>}
+          <button className="icard-new" onClick={() => newInstallationDialog(app)}><Plus size={15} />New installation</button>
         </div>
       </aside>
 
@@ -59,17 +58,18 @@ export function Installations({ id, tab }: { id?: string; tab?: string }) {
           <div className="scrim" />
           <div style={{ position: "absolute", left: 28, bottom: 24 }}>
             <h1 className="shadowtext" style={{ fontSize: current === "Overview" ? 34 : 26, fontWeight: 700, letterSpacing: -0.6, transition: "font-size var(--slow) var(--ease)" }}>{inst.name}</h1>
-            <div className="t-small shadowtext" style={{ display: "flex", gap: 14, color: "#e3e7ec", marginTop: 6 }}>
-              <span style={{ display: "flex", gap: 6, alignItems: "center" }}><img src="/assets/v3/mc.png" alt="" style={{ width: 15, height: 15 }} />{inst.version}</span>
-              <span style={{ display: "flex", gap: 6, alignItems: "center" }}><img src={modeIcon(inst.mode)} alt="" style={{ width: 15, height: 15, borderRadius: 3 }} />{inst.mode}</span>
-              <span style={{ display: "flex", gap: 6, alignItems: "center" }}><Clock size={14} color="#c9ced6" />Last played: {inst.lastPlayed ? new Date(inst.lastPlayed).toLocaleDateString() : "never"}</span>
+            <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+              <span className="hchip"><img src="/assets/v3/mc.png" alt="" />Minecraft {inst.version}</span>
+              <span className="hchip"><img src={modeIcon(inst.mode)} alt="" />{inst.mode}</span>
+              <span className="hchip">{inst.memoryGb} GB</span>
             </div>
           </div>
           <div style={{ position: "absolute", right: 24, bottom: 24, display: "flex", gap: 8 }}>
-            <button className="ibtn solid" style={{ width: 40, height: 40 }} aria-label="Open installation folder" onClick={() => api.openFolder("instance", inst.id).catch((e) => app.notify(errText(e), "error"))}><FolderOpen size={17} /></button>
-            <button className="plain" onClick={() => { app.selectInstallation(inst.id); launchInstallation(app, inst); }}>LAUNCH GAME</button>
+            <button className="btn" style={{ height: 40, background: "rgba(20,21,25,.72)" }} onClick={() => api.openFolder("instance", inst.id).catch((e) => app.notify(errText(e), "error"))}><FolderOpen size={16} />Folder</button>
+            <button className="cta" onClick={() => { app.selectInstallation(inst.id); launchInstallation(app, inst); }}>LAUNCH GAME</button>
           </div>
         </div>
+        {current === "Overview" && <InstStats inst={inst} />}
         <div className="st" style={{ ["--i" as string]: 2 }}>
           <Seg label="Installation sections" value={current} onChange={setTab} items={[
             { value: "Overview", label: "Overview", icon: <Info size={14} /> }, { value: "Content", label: "Content", icon: <Package size={14} /> },
@@ -111,16 +111,26 @@ function Overview({ inst }: { inst: Installation }) {
   return (
     <div className="ov-grid">
       <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
+        <div className="ocard">
+          <span className="sec-label">Launch mode</span>
+          <div className="mode-tiles">
+            {(["Standard", "OptiFine"] as Mode[]).map((m) => (
+              <button key={m} type="button" className={"mode-tile" + (inst.mode === m ? " on" : "")} aria-pressed={inst.mode === m} onClick={() => app.updateInstallation(inst.id, { mode: m })}>
+                {inst.mode === m && <Check size={13} strokeWidth={3} className="mt-check" />}
+                <img src={modeIcon(m)} alt="" /><b>{m}</b><span>{m === "OptiFine" ? "Zoom, shaders, smoother frames" : "Plain Minecraft"}</span>
+              </button>
+            ))}
+          </div>
+          <span className="sec-label" style={{ marginTop: 6 }}>Memory</span>
+          <div className="mem-presets">
+            {[[2, "Low"], [3, "Recommended"], [4, "High"], [6, "Max"]].map(([gb, lab]) => (
+              <button key={gb} type="button" className={inst.memoryGb === gb ? "on" : ""} onClick={() => app.updateInstallation(inst.id, { memoryGb: gb as number })}><b>{gb} GB</b><span>{lab}</span></button>
+            ))}
+          </div>
+          <span className="t-cap">1.8.9 runs best with 2–4 GB.{app.paths ? ` You have ${Math.round(app.paths.totalMemoryMb / 1024)} GB.` : ""}{![2, 3, 4, 6].includes(inst.memoryGb) ? ` Custom: ${inst.memoryGb} GB.` : ""}</span>
+          <button className="btn sm" style={{ alignSelf: "flex-start" }} onClick={() => app.navigate({ name: "installations", id: inst.id, tab: "Settings" })}>All settings</button>
+        </div>
         <Group title="Setup">
-          <Row title="Minecraft version" detail="Kestrel supports 1.8.9 today. More versions come later.">
-            <Select label="Minecraft version" width={140} value={inst.version} options={[{ value: "1.8.9", label: "1.8.9" }]} onChange={(v) => app.updateInstallation(inst.id, { version: v })} />
-          </Row>
-          <Row title="Launch mode" detail="OptiFine adds zoom, shaders and smoother frames.">
-            <Seg label="Launch mode" onSurface value={inst.mode} onChange={(m) => app.updateInstallation(inst.id, { mode: m as Mode })} items={(["Standard", "OptiFine"] as Mode[]).map((m) => ({ value: m, label: m, icon: <img src={modeIcon(m)} alt="" /> }))} />
-          </Row>
-          <Row title="Memory" detail={`${inst.memoryGb} GB${app.paths ? ` of ${Math.round(app.paths.totalMemoryMb / 1024)} GB` : ""}`}>
-            <button className="link" onClick={() => app.navigate({ name: "installations", id: inst.id, tab: "Settings" })}>Adjust</button>
-          </Row>
           <Row title="Game folder" detail={dir}>
             <button className="ibtn sm" aria-label="Copy folder path" onClick={() => { navigator.clipboard?.writeText(dir).then(() => app.notify("Folder path copied."), () => {}); }}><Copy size={15} /></button>
             <button className="ibtn sm" aria-label="Open game folder" onClick={() => api.openFolder("instance", inst.id).catch((e) => app.notify(errText(e), "error"))}><FolderOpen size={15} /></button>
@@ -135,27 +145,96 @@ function Overview({ inst }: { inst: Installation }) {
         {inst.mode === "OptiFine" && <OptiFineGroup app={app} inst={inst} />}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
-        <Group title="Content">
-          {([["Resource packs", "resourcepacks", Package, "pack", "packs"], ["Shaders", "shaderpacks", Sparkles, "shader", "shaders"], ["Mods", "mods", Puzzle, "mod", "mods"], ["Worlds", "saves", Globe, "world", "worlds"], ["Screenshots", "screenshots", ImageIcon, "screenshot", "screenshots"]] as const).map(([label, k, Icon, one, many]) => (
-            <button key={k} className="row" style={{ width: "100%", textAlign: "left" }} onClick={() => app.navigate({ name: "installations", id: inst.id, tab: k === "screenshots" ? "Screenshots" : k === "saves" ? "Worlds" : "Content" })}>
-              <Icon size={16} color="var(--text2)" /><span className="t-strong" style={{ flex: 1 }}>{label}</span><span className="t-cap">{fmt(counts[k], one, many)}</span>
-            </button>
-          ))}
-        </Group>
-        <Group title="Move and share">
-          <Row title="Bring your setup over" detail="Settings, keybinds, servers and packs from .minecraft">
-            <button className="btn sm" disabled={!inApp} onClick={() => importSetupDialog(app, inst)}><Download size={14} />Import</button>
-          </Row>
-          <Row title="Export" detail="One .kestrel file with settings and Modrinth content">
-            <button className="btn sm" disabled={!inApp} onClick={() => exportInstallation(app, inst)}><FileDown size={14} />Export</button>
-          </Row>
-        </Group>
+        <OnThis inst={inst} counts={counts} fmt={fmt} />
+        <PlayTime inst={inst} />
       </div>
     </div>
   );
 }
 
-const KIND_LABEL: Record<string, string> = { resourcepacks: "Resource packs", shaderpacks: "Shaders", mods: "Mods" };
+/** Four stat tiles under the hero: this week, last played, packs turned on, worlds. */
+function InstStats({ inst }: { inst: Installation }) {
+  const app = useApp();
+  const [s, setS] = useState<PlayStats | null>(null);
+  const [packs, setPacks] = useState<{ on: number; icons: string[] } | null>(null);
+  const [worlds, setWorlds] = useState<World[] | null>(null);
+  useEffect(() => {
+    if (!inApp) return;
+    api.playStats().then((all) => setS(all[inst.id] ?? null)).catch(() => {});
+    Promise.all([api.getActivePacks(inst.id).catch(() => [] as string[]), api.identifyContent(inst.id, "resourcepacks", inst.version).catch(() => [])])
+      .then(([on, ids]) => setPacks({ on: on.filter((p) => p !== "vanilla").length, icons: ids.map((x) => x.iconUrl).filter(Boolean).slice(0, 3) as string[] }));
+    api.listWorlds(inst.id).then(setWorlds).catch(() => setWorlds([]));
+  }, [inst.id]);
+  const today = Math.floor(Date.now() / 86_400_000);
+  const days = Array.from({ length: 7 }, (_, i) => s?.days?.[String(today - 6 + i)] ?? 0);
+  const week = days.reduce((a, b) => a + b, 0), max = Math.max(...days, 1);
+  const fmt = (x: number) => { const h = Math.floor(x / 3600), m = Math.floor((x % 3600) / 60); return h ? `${h}h ${m}m` : `${m}m`; };
+  const last = inst.lastPlayed ? (() => { const m = (Date.now() - inst.lastPlayed!) / 60000; return m < 60 ? `${Math.max(1, Math.floor(m))} min ago` : m < 1440 ? `${Math.floor(m / 60)} hours ago` : m < 2880 ? "Yesterday" : new Date(inst.lastPlayed!).toLocaleDateString(); })() : "Never";
+  const size = (worlds ?? []).reduce((n, w) => n + w.size, 0);
+  return (
+    <div className="istats st" style={{ ["--i" as string]: 2 }}>
+      <div className="istat"><span><span className="k">This week</span><b>{inApp ? fmt(week) : "—"}</b></span><span className="mini-bars">{days.map((d, i) => <i key={i} className={i === 6 ? "today" : ""} style={{ height: `${Math.max(3, (d / max) * 26)}px` }} />)}</span></div>
+      <div className="istat"><span><span className="k">Last played</span><b>{last}</b></span></div>
+      <button className="istat" onClick={() => app.navigate({ name: "installations", id: inst.id, tab: "Content" })}><span><span className="k">Resource packs</span><b>{packs ? `${packs.on} on` : "—"}</b></span><span className="thumbs">{packs?.icons.map((u) => <img key={u} src={u} alt="" />)}</span></button>
+      <button className="istat" onClick={() => app.navigate({ name: "installations", id: inst.id, tab: "Worlds" })}><span><span className="k">Worlds</span><b>{worlds ? `${worlds.length}${worlds.length ? ` · ${formatBytes(size)}` : ""}` : "—"}</b></span><Globe size={18} color="var(--text3)" style={{ marginLeft: "auto" }} /></button>
+    </div>
+  );
+}
+
+/** "On this installation": each kind of content with a few thumbnails, plus export / import. */
+function OnThis({ inst, counts, fmt }: { inst: Installation; counts: Record<string, number | null>; fmt: (n: number | null, one: string, many: string) => string }) {
+  const app = useApp();
+  const [thumbs, setThumbs] = useState<Record<string, string[]>>({});
+  useEffect(() => {
+    setThumbs({});
+    if (!inApp) return;
+    const put = (k: string, l: string[]) => setThumbs((t) => ({ ...t, [k]: l.slice(0, 3) }));
+    (["resourcepacks", "shaderpacks"] as ContentKind[]).forEach((k) => api.identifyContent(inst.id, k, inst.version).then((l) => put(k, l.map((x) => x.iconUrl).filter(Boolean) as string[])).catch(() => {}));
+    api.listWorlds(inst.id).then((l) => put("saves", l.map((w) => w.icon).filter(Boolean) as string[])).catch(() => {});
+    const base = app.paths ? `${app.paths.instances}\\${inst.id}\\screenshots\\` : "";
+    if (base) api.listContent(inst.id, "screenshots").then((l) => put("screenshots", l.slice(-3).reverse().map((f) => fileUrl(base + f.file)))).catch(() => {});
+  }, [inst.id, app.paths]);
+  const rows = [["Resource packs", "resourcepacks", "pack", "packs", "Content"], ["Shaders", "shaderpacks", "shader", "shaders", "Content"], ["Mods", "mods", "mod", "mods", "Content"], ["Worlds", "saves", "world", "worlds", "Worlds"], ["Screenshots", "screenshots", "screenshot", "screenshots", "Screenshots"]] as const;
+  return (
+    <div className="ocard">
+      <span className="sec-label">On this installation</span>
+      {rows.filter(([, k]) => k !== "mods" || inst.mode === "Standard" || (counts.mods ?? 0) > 0).map(([label, k, one, many, tab]) => (
+        <button key={k} className="on-row" onClick={() => app.navigate({ name: "installations", id: inst.id, tab })}>
+          <span style={{ flex: 1, minWidth: 0 }}><b>{label}</b><span>{fmt(counts[k], one, many)}</span></span>
+          <span className="thumbs">{(thumbs[k]?.length ? thumbs[k] : counts[k] ? [`/assets/brand/ph-${k === "screenshots" ? "saves" : k}.png`] : []).map((u) => <img key={u} src={u} alt="" />)}</span>
+          <ChevronRight size={16} color="var(--text3)" />
+        </button>
+      ))}
+      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+        <button className="btn sm" disabled={!inApp} onClick={() => exportInstallation(app, inst)}><FileDown size={14} />Export .kestrel</button>
+        <button className="btn sm" disabled={!inApp} onClick={() => importSetupDialog(app, inst)}><Download size={14} />Bring your setup over</button>
+      </div>
+    </div>
+  );
+}
+
+/** "3 h 12 m", "45 m", "under a minute". */
+function duration(secs: number) {
+  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
+  return h ? `${h} h ${m} m` : m ? `${m} m` : secs > 0 ? "under a minute" : "None yet";
+}
+
+/** Session stats from Kestrel's stats.json (recorded when Minecraft closes). */
+function PlayTime({ inst }: { inst: Installation }) {
+  const [s, setS] = useState<PlayStats | null | undefined>(undefined);
+  useEffect(() => { if (inApp) api.playStats().then((all) => setS(all[inst.id] ?? null)).catch(() => setS(null)); else setS(null); }, [inst.id]);
+  const today = Math.floor(Date.now() / 86_400_000);
+  const week = s ? Object.entries(s.days ?? {}).filter(([d]) => Number(d) > today - 7).reduce((n, [, v]) => n + v, 0) : 0;
+  return (
+    <Group title="Play time">
+      <Row title="This week" detail={s === undefined ? "…" : duration(week)} />
+      <Row title="All time" detail={s ? `${duration(s.seconds)} over ${s.sessions} session${s.sessions === 1 ? "" : "s"}` : s === undefined ? "…" : "Counted from your next game"} />
+      {s && s.sessions > 0 && <Row title="Longest session" detail={`${duration(s.longest)} · last one ${duration(s.last)}`} />}
+    </Group>
+  );
+}
+
+const KIND_LABEL: Record<string, string> ={ resourcepacks: "Resource packs", shaderpacks: "Shaders", mods: "Mods" };
 /** Save the packs that are on right now as a named set, and switch sets in one click. */
 function PackProfiles({ inst }: { inst: Installation }) {
   const app = useApp();
@@ -164,7 +243,7 @@ function PackProfiles({ inst }: { inst: Installation }) {
   useEffect(() => { api.getActivePacks(inst.id).then(setActive).catch(() => setActive([])); }, [inst.id]);
   const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
   const current = active ? profiles.find((p) => same(p.packs, active))?.name : undefined;
-  const save = () => app.openDialog({ title: "Save pack profile", body: <SaveProfile onSave={(name) => {
+  const save = () => app.openDialog({ title: "Save pack profile", sub: "Remembers which packs are on, in order.", icon: <Package size={18} />, body: <SaveProfile onSave={(name) => {
     const next = [...profiles.filter((p) => p.name.toLowerCase() !== name.toLowerCase()), { name, packs: active ?? [] }];
     app.updateInstallation(inst.id, { packProfiles: next }); app.closeDialog(); app.notify(`Saved "${name}" with ${(active ?? []).length} pack${(active ?? []).length === 1 ? "" : "s"}.`);
   }} onCancel={app.closeDialog} /> });
@@ -186,7 +265,6 @@ function SaveProfile({ onSave, onCancel }: { onSave: (name: string) => void; onC
   const [name, setName] = useState("");
   return (
     <form style={{ display: "flex", flexDirection: "column", gap: 14 }} onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSave(name.trim()); }}>
-      <p className="t-cap" style={{ marginTop: -8 }}>Saves which resource packs are on in game right now, in order. Switch back to it any time.</p>
       <label>Name<input className="field on-surface" autoFocus maxLength={24} value={name} onChange={(e) => setName(e.target.value)} placeholder="PvP" /></label>
       <div className="actions"><button type="button" className="btn ghost" onClick={onCancel}>Cancel</button><button className="btn green" disabled={!name.trim()}><Check size={15} />Save</button></div>
     </form>
@@ -253,7 +331,7 @@ function Content({ inst }: { inst: Installation }) {
             const id = ids[f.file];
             return (
               <div key={f.file} style={{ display: "flex", alignItems: "center", gap: 14, padding: 12, borderRadius: 10 }} className="hov">
-                <span className="c-icon">{id?.iconUrl ? <img src={id.iconUrl} alt="" loading="lazy" /> : <Package size={18} />}</span>
+                <span className="c-icon"><img src={id?.iconUrl ?? `/assets/brand/ph-${kind}.png`} alt="" loading="lazy" /></span>
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <b className="t-strong" style={{ display: "block", color: f.enabled ? "var(--text)" : "var(--text3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label(f)}</b>
                   <span className="t-cap">{[id?.versionNumber, formatBytes(f.size), id?.projectId ? "Modrinth" : "Local file", f.enabled ? "" : "Disabled"].filter(Boolean).join(" · ")}</span>
@@ -265,7 +343,7 @@ function Content({ inst }: { inst: Installation }) {
                 )}
                 {id?.slug && <button className="ibtn sm" aria-label={`Open ${label(f)} page`} onClick={() => app.navigate({ name: "project", id: id.projectId!, target: inst.id })}><Info size={15} /></button>}
                 <Toggle label={`${f.enabled ? "Disable" : "Enable"} ${label(f)}`} checked={f.enabled} onChange={(on) => api.setContentEnabled(inst.id, kind, f.file, on).then(load).catch((e) => app.notify(errText(e), "error"))} />
-                <button className="ibtn sm" aria-label={`Delete ${label(f)}`} onClick={() => confirmDialog(app, { title: `Delete ${label(f)}?`, text: "This removes the file from this installation's folder.", confirm: "Delete", danger: true,
+                <button className="ibtn sm" aria-label={`Delete ${label(f)}`} onClick={() => confirmDialog(app, { title: `Delete ${label(f)}?`, text: `The file is deleted from ${inst.name}'s folder.`, confirm: "Delete", danger: true,
                   onConfirm: () => api.deleteContent(inst.id, kind, f.file).then(load).then(() => app.notify(`${label(f)} deleted.`)).catch((e) => app.notify(errText(e), "error")) })}><Trash2 size={15} /></button>
               </div>
             );
@@ -323,7 +401,7 @@ function Worlds({ inst }: { inst: Installation }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span className="t-cap" style={{ flex: 1 }}>{worlds === null ? "Loading…" : `${worlds.length} world${worlds.length === 1 ? "" : "s"} · Backups are zipped into Kestrel's backups folder`}</span>
-        <button className="btn" onClick={() => api.openFolder("backups", inst.id).catch((e) => app.notify(errText(e), "error"))}><ArchiveRestore size={16} />Backups</button>
+        <button className="btn" disabled={!inApp} onClick={() => app.openDialog({ title: "Backups", sub: `${inst.name}'s worlds, newest first.`, icon: <ArchiveRestore size={18} />, wide: true, body: <Backups inst={inst} onRestored={load} /> })}><ArchiveRestore size={16} />Backups</button>
         <button className="btn" onClick={() => api.openFolder("content", inst.id, "saves").catch((e) => app.notify(errText(e), "error"))}><FolderOpen size={16} />Open folder</button>
       </div>
       {worlds === null ? <div className="skeleton" style={{ height: 136 }} /> : worlds.length === 0 ? (
@@ -332,7 +410,7 @@ function Worlds({ inst }: { inst: Installation }) {
         <div style={{ display: "flex", flexDirection: "column" }}>
           {worlds.map((w) => (
             <div key={w.folder} className="hov" style={{ display: "flex", alignItems: "center", gap: 14, padding: 12, borderRadius: 10 }}>
-              <span className="c-icon w">{w.icon ? <img src={w.icon} alt="" /> : <Globe size={18} />}</span>
+              <span className="c-icon w"><img src={w.icon ?? "/assets/brand/ph-saves.png"} alt="" /></span>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <b className="t-strong" style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</b>
                 <span className="t-cap">{[ago(w.lastPlayed), w.mode, formatBytes(w.size), w.folder !== w.name ? w.folder : ""].filter(Boolean).join(" · ")}</span>
@@ -345,6 +423,51 @@ function Worlds({ inst }: { inst: Installation }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** Backups popup: every zip in Kestrel's backups folder for this installation, with Restore. */
+function Backups({ inst, onRestored }: { inst: Installation; onRestored: () => void }) {
+  const app = useApp();
+  const [list, setList] = useState<Backup[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [sure, setSure] = useState<string | null>(null);
+  useEffect(() => { api.listBackups(inst.id).then(setList).catch((e) => { app.notify(errText(e), "error"); setList([]); }); }, [inst.id]);
+  const restore = async (b: Backup) => {
+    setBusy(b.file);
+    try {
+      await api.restoreBackup(inst.id, b.file);
+      app.closeDialog(); onRestored();
+      app.notify(`${b.world} is back as it was on ${new Date(b.time * 1000).toLocaleString()}.`);
+    } catch (e) { app.notify(errText(e), "error"); setBusy(null); }
+  };
+  return (
+    <>
+      {list === null ? <div className="skeleton" style={{ height: 120 }} /> : list.length === 0 ? (
+        <div className="inset"><p className="note" style={{ fontSize: 13, color: "var(--text2)" }}>No backups yet. Use Back up next to a world, or turn on "Back up worlds before launching" in Settings.</p></div>
+      ) : (
+        <div className="inset rows" style={{ maxHeight: 340, overflowY: "auto" }}>
+          {list.map((b) => (
+            <div key={b.file} style={{ alignItems: "center" }}>
+              <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0, color: "var(--text)" }}>
+                <b className="t-strong">{b.world}</b>
+                <span className="t-cap">{new Date(b.time * 1000).toLocaleString()} · {formatBytes(b.size)}</span>
+              </span>
+              <span>
+                {sure === b.file
+                  ? <button className="btn sm green" disabled={busy !== null} onClick={() => restore(b)}>{busy === b.file ? <span className="spinner" /> : <ArchiveRestore size={14} />}Replace the world</button>
+                  : <button className="btn sm" disabled={busy !== null} onClick={() => setSure(b.file)}>Restore</button>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="note">Restoring replaces the world with the backup. The world as it is now is backed up first, so nothing is lost.</p>
+      <div className="actions">
+        <button className="link" onClick={() => api.openFolder("backups", inst.id).catch((e) => app.notify(errText(e), "error"))}><FolderOpen size={15} />Open backups folder</button>
+        <button className="btn" onClick={app.closeDialog}>Close</button>
+      </div>
+    </>
   );
 }
 
@@ -441,6 +564,24 @@ function InstSettings({ inst }: { inst: Installation }) {
         </Row>
         <Row title="Start in fullscreen"><Toggle label="Start in fullscreen" checked={inst.fullscreen} onChange={(v) => app.updateInstallation(inst.id, { fullscreen: v })} /></Row>
       </Group>
+      <Group title="Older PCs">
+        <Row title="Low-end mode" detail="For older or weaker PCs: render distance 6, fast graphics, no clouds, smooth lighting or shadows, and OptiFine's fast options.">
+          <button className="btn sm" disabled={!inApp} onClick={() => confirmDialog(app, {
+            title: "Turn on low-end mode?", text: `Changes ${inst.name}'s Video Settings for more FPS.`, icon: <Gauge size={18} />, confirm: "Apply",
+            children: (
+              <div className="inset">
+                <ul className="bullets" style={{ margin: 0, padding: 0 }}>
+                  <li>Render distance 6, Fast graphics, no clouds</li>
+                  <li>Smooth lighting, entity shadows, mipmaps and V-Sync off</li>
+                  <li>OptiFine: Fast Render, Fast Math, Smart Animations</li>
+                  <li>No blur behind Kestrel's menus</li>
+                </ul>
+              </div>
+            ),
+            onConfirm: () => api.applyLowEnd(inst.id).then(() => app.notify(`Low-end mode is on for ${inst.name}. Change any of it in Minecraft's Video Settings.`)).catch((e) => app.notify(errText(e), "error")),
+          })}><Gauge size={14} />Apply</button>
+        </Row>
+      </Group>
       <Group title="Advanced">
         <div className="row" style={{ flexDirection: "column", alignItems: "stretch", gap: 10 }}>
           <div className="tx"><b>Java arguments</b><span>Only -X and -D options are passed through.</span></div>
@@ -457,7 +598,7 @@ function InstSettings({ inst }: { inst: Installation }) {
       </Group>
       <Group title="Remove">
         <Row title="Remove installation" detail="Removes it from Kestrel. Its folder and worlds stay on your PC.">
-          <button className="btn danger" disabled={app.installations.length < 2} onClick={() => confirmDialog(app, { title: `Remove ${inst.name}?`, text: "The folder and everything in it stays on your PC. You can delete it yourself from File Explorer.", confirm: "Remove", danger: true,
+          <button className="btn danger" disabled={app.installations.length < 2} onClick={() => confirmDialog(app, { title: `Remove ${inst.name}?`, text: "It disappears from Kestrel. Its folder stays on your PC.", confirm: "Remove", danger: true,
             onConfirm: () => { app.removeInstallation(inst.id); app.navigate({ name: "installations" }); app.notify(`${inst.name} removed.`); } })}><Trash2 size={15} />Remove</button>
         </Row>
       </Group>
@@ -466,7 +607,7 @@ function InstSettings({ inst }: { inst: Installation }) {
 }
 
 export function newInstallationDialog(app: AppState) {
-  app.openDialog({ title: "New installation", wide: true, body: <NewInstallation app={app} /> });
+  app.openDialog({ title: "New installation", sub: "Its own game folder, packs and settings.", icon: <Plus size={18} />, wide: true, body: <NewInstallation app={app} /> });
 }
 
 function NewInstallation({ app }: { app: AppState }) {
@@ -484,21 +625,20 @@ function NewInstallation({ app }: { app: AppState }) {
       app.notify(`${clean} created. Game files download on first launch.`);
       app.navigate({ name: "installations", id: inst.id });
     }}>
-      <p className="t-cap" style={{ marginTop: -8 }}>A separate setup with its own files, packs and settings.</p>
       <label>Cover
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${Object.keys(COVERS).length}, 1fr)`, gap: 8 }}>
           {Object.entries(COVERS).map(([k, c]) => (
-            <button type="button" key={k} aria-label={c.label} aria-pressed={cover === k} onClick={() => setCover(k)} style={{ width: 92, height: 56, borderRadius: 8, background: `url(${c.src}) center/cover`, boxShadow: cover === k ? "0 0 0 2px var(--text)" : "none", transition: "box-shadow var(--fast)" }} />
+            <button type="button" key={k} aria-label={c.label} aria-pressed={cover === k} onClick={() => setCover(k)} style={{ aspectRatio: "3 / 2", borderRadius: 8, background: `url(${c.src}) center/cover`, boxShadow: cover === k ? "0 0 0 2px var(--text)" : "none", transition: "box-shadow var(--fast)" }} />
           ))}
         </div>
       </label>
-      <label>Name<input className="field on-surface" autoFocus value={name} maxLength={32} onChange={(e) => setName(e.target.value)} placeholder="Bedwars practice" />{taken && <span style={{ color: "var(--danger)" }}>You already have an installation with this name.</span>}</label>
+      <label>Name<input className="field on-surface" autoFocus value={name} maxLength={32} onChange={(e) => setName(e.target.value)} placeholder="Bedwars practice" />{taken && <span style={{ color: "var(--danger)", fontWeight: 400 }}>You already have an installation with this name.</span>}</label>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <label>Minecraft version<Select label="Minecraft version" width={264} value="1.8.9" options={[{ value: "1.8.9", label: "1.8.9", hint: "More versions come later" }]} onChange={() => {}} /></label>
+        <label>Minecraft version<div className="field on-surface" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", color: "var(--text)" }}>1.8.9<span className="t-cap" style={{ fontWeight: 400 }}>More versions later</span></div></label>
         <label>Launch mode<Seg label="Launch mode" onSurface value={mode} onChange={(m) => setMode(m as Mode)} items={(["Standard", "OptiFine"] as Mode[]).map((m) => ({ value: m, label: m, icon: <img src={modeIcon(m)} alt="" /> }))} /></label>
       </div>
-      <div className="actions">
-        <button type="button" className="link" style={{ marginRight: "auto" }} onClick={() => { app.closeDialog(); importInstallationFile(app); }}>Import a .kestrel file instead</button>
+      <div className="actions" style={{ marginTop: 4 }}>
+        <button type="button" className="link" onClick={() => { app.closeDialog(); importInstallationFile(app); }}><FileUp size={15} />Import a .kestrel file</button>
         <button type="button" className="btn ghost" onClick={app.closeDialog}>Cancel</button>
         <button className="btn green" disabled={!clean || taken}><Plus size={16} />Create</button>
       </div>

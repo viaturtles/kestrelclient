@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { AlertTriangle, ArrowDownToLine, Check, Circle, Copy, Download, FileText, FolderOpen, History, Minus, Radio, RotateCcw, Search, Square as StopIcon, SkipForward, X } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, Check, Circle, Copy, Download, FileText, FolderOpen, History, Minus, Radio, RotateCcw, Search, Square as StopIcon, SkipForward, Wrench, X } from "lucide-react";
 import { api, inApp, onMission, onStats, type LaunchRecord, type MissionEvent } from "../lib/api";
 import { useDismiss } from "../components/ui";
 
 type Step = { id: string; label: string; status: string; detail: string };
 type Line = { time: string; level: string; text: string };
-type Snap = { title: string; state: string; detail: string; steps: Step[]; lines: Line[]; started: number | null; instanceId: string | null };
+type Snap = { title: string; state: string; detail: string; fix?: string; steps: Step[]; lines: Line[]; started: number | null; instanceId: string | null };
+/** One-click crash fixes (launch.rs explain_crash): button label for each fix id. */
+const FIXES: Record<string, string> = {
+  memory: "Give it more memory and relaunch", jvm: "Reset memory and Java arguments", java: "Use the right Java and relaunch",
+  natives: "Repair and relaunch", files: "Check files and relaunch", world: "Back up worlds and relaunch", standard: "Relaunch without OptiFine",
+};
 const STATE_LABEL: Record<string, [string, string]> = {
   idle: ["Waiting for a launch", "var(--text3)"], preparing: ["Preparing", "var(--info)"], running: ["Minecraft running", "var(--accent-text)"],
   blocked: ["Needs sign-in", "var(--warn)"], failed: ["Failed", "var(--danger)"], crashed: ["Crashed", "var(--danger)"], exited: ["Stopped", "var(--text2)"],
@@ -24,7 +29,7 @@ function reduce(s: Snap, e: MissionEvent): Snap {
       const m = /Game folder: .*instances\\([a-z0-9-]+)/.exec(e.line ?? "");
       return { ...s, lines: [...s.lines.slice(-4000), { time: e.time, level: e.level ?? "info", text: e.line ?? "" }], instanceId: m ? m[1] : s.instanceId };
     }
-    case "state": return { ...s, state: e.status ?? "idle", detail: e.detail ?? "" };
+    case "state": return { ...s, state: e.status ?? "idle", detail: e.detail ?? "", fix: e.label ?? undefined };
   }
   return s;
 }
@@ -47,12 +52,15 @@ export function Mission() {
   useEffect(() => {
     document.title = "Kestrel · Launch Control";
     if (!inApp) { dispatch({ kind: "log", level: "warn", line: "Launch Control runs in the Kestrel desktop app.", time: "" }); return; }
-    let un: (() => void) | undefined, unStats: (() => void) | undefined;
-    api.missionSnapshot().then((evs) => evs.forEach(dispatch)).finally(() => {
-      onMission((e) => { if (e.kind === "reset") { setSamples([]); setHist(null); } dispatch(e); }).then((f) => (un = f));
+    // Listeners attach asynchronously, so one that arrives after cleanup (React runs effects twice in dev)
+    // is removed straight away; otherwise every log line would show twice.
+    let dead = false, un: (() => void) | undefined, unStats: (() => void) | undefined;
+    api.missionSnapshot().then((evs) => { if (!dead) evs.forEach(dispatch); }).finally(() => {
+      if (dead) return;
+      onMission((e) => { if (e.kind === "reset") { setSamples([]); setHist(null); } dispatch(e); }).then((f) => { if (dead) f(); else un = f; });
     });
-    onStats((s) => setSamples((l) => [...l.slice(-89), { cpu: Math.min(100, s.cpu / CORES), mem: s.memoryMb }])).then((f) => (unStats = f));
-    return () => { un?.(); unStats?.(); };
+    onStats((s) => setSamples((l) => [...l.slice(-89), { cpu: Math.min(100, s.cpu / CORES), mem: s.memoryMb }])).then((f) => { if (dead) f(); else unStats = f; });
+    return () => { dead = true; un?.(); unStats?.(); };
   }, []);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   useEffect(() => { if (follow && logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [v.lines, follow, filter, q]);
@@ -125,8 +133,9 @@ export function Mission() {
                   <div><b>Minecraft crashed.</b> {v.detail}</div>
                   {!hist && inApp && (
                     <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                      {v.fix && FIXES[v.fix] && <button className="btn sm green" onClick={() => api.relaunchFix(v.fix!).catch(() => {})}><Wrench size={13} />{FIXES[v.fix]}</button>}
                       <button className="btn sm" onClick={() => api.relaunchLast(false).catch(() => {})}><RotateCcw size={13} />Relaunch</button>
-                      {v.steps.some((s) => s.id === "mode" && /optifine/i.test(s.detail)) && <button className="btn sm" onClick={() => api.relaunchLast(true).catch(() => {})}>Relaunch without OptiFine</button>}
+                      {v.fix !== "standard" && v.steps.some((s) => s.id === "mode" && /optifine/i.test(s.detail)) && <button className="btn sm" onClick={() => api.relaunchLast(true).catch(() => {})}>Relaunch without OptiFine</button>}
                     </div>
                   )}
                 </div>

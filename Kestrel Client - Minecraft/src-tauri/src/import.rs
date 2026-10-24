@@ -7,6 +7,7 @@ use crate::instances::{content_dir, ensure_instance};
 use crate::{java, mojang, nbt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -180,8 +181,107 @@ pub async fn optifine_run_installer(app: AppHandle, state: State<'_, AppState>, 
 /// Copies an OptiFine version installed in .minecraft (by OptiFine's installer) into Kestrel.
 #[tauri::command]
 pub async fn optifine_import(state: State<'_, AppState>, id: String) -> Res<String> {
+    import_optifine_from(&state, &dot_minecraft(), &id).await
+}
+
+/// The official download page for OptiFine 1.8.9 HD U M5 (OptiFine's own page with its ads).
+/// OptiFine may not be redistributed, so Kestrel never hosts it or downloads it itself.
+pub const OPTIFINE_PAGE: &str = "https://optifine.net/adloadx?f=OptiFine_1.8.9_HD_U_M5.jar";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OptiFineAuto { pub installed: bool, pub id: Option<String>, pub page: String }
+
+/// True when this OptiFine version is imported and all its files are present.
+#[tauri::command]
+pub fn optifine_ready(id: String) -> bool { optifine_overlay(&id).is_some() }
+
+/// Automatic OptiFine for 1.8.9: uses one already set up in Kestrel, or installs the jar the player
+/// downloaded (found in their Downloads folder) without OptiFine's window. Otherwise answers
+/// installed: false, and the launcher opens the official download page and asks again.
+#[tauri::command]
+pub async fn optifine_auto(app: AppHandle, state: State<'_, AppState>) -> Res<OptiFineAuto> {
+    let page = OPTIFINE_PAGE.to_string();
+    if let Some(id) = optifine_versions_in(&versions_dir()).into_iter().filter(|v| v.contains("1.8.9")).find(|v| optifine_overlay(v).is_some()) {
+        return Ok(OptiFineAuto { installed: true, id: Some(id), page });
+    }
+    let Some(jar) = find_optifine_download() else { return Ok(OptiFineAuto { installed: false, id: None, page }) };
+    let st = state.inner();
+    write_log(st, &format!("Installing OptiFine from {}", jar.display()));
+    // A private stand-in for .minecraft, so the player's real one is never touched.
+    let dir = data_dir().join("tools").join("optifine-setup");
+    let _ = std::fs::remove_dir_all(&dir);
+    mojang::install(&app, st, "1.8.9", &|l| write_log(st, l)).await?;
+    let vdir = dir.join("versions").join("1.8.9");
+    std::fs::create_dir_all(&vdir).map_err(err("Prepare OptiFine"))?;
+    std::fs::create_dir_all(dir.join("libraries")).map_err(err("Prepare OptiFine"))?;
+    let (kj, kjar, _) = mojang::version_paths("1.8.9");
+    std::fs::copy(&kj, vdir.join("1.8.9.json")).map_err(err("Prepare OptiFine"))?;
+    std::fs::copy(&kjar, vdir.join("1.8.9.jar")).map_err(err("Prepare OptiFine"))?;
+    std::fs::write(dir.join("launcher_profiles.json"), "{\"profiles\":{}}").map_err(err("Prepare OptiFine"))?;
+    let java_exe = if java::managed_java("jre-legacy").is_file() { java::managed_java("jre-legacy") } else {
+        java::install_runtime(&app, st, "jre-legacy", &|l| write_log(st, l)).await?
+    };
+    let core = crate::launch::tool_jar("kestrel-core.jar", crate::launch::CORE)?;
+    let cp = format!("{};{}", jar.display(), core.display());
+    let out = tokio::process::Command::new(&java_exe)
+        .args(["-Djava.awt.headless=true", "-cp", &cp, "kestrel.core.OptiFineSetup"]).arg(&dir)
+        .creation_flags(0x0800_0000).output().await.map_err(err("Run OptiFine's installer"))?;
+    let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+    if !out.status.success() || !text.contains("KESTREL_OK") {
+        write_log(st, &format!("OptiFine install failed: {}", text.trim()));
+        return Err("OptiFine couldn't be installed automatically. Use Installations → Overview → OptiFine instead.".into());
+    }
+    let id = optifine_versions_in(&dir.join("versions")).into_iter().find(|v| v.contains("1.8.9"))
+        .ok_or("OptiFine installed, but its version wasn't found")?;
+    let id = import_optifine_from(st, &dir, &id).await?;
+    let _ = std::fs::remove_dir_all(&dir);
+    write_log(st, &format!("OptiFine ready: {id}"));
+    Ok(OptiFineAuto { installed: true, id: Some(id), page })
+}
+
+/// The newest OptiFine 1.8.9 jar in the player's Downloads folder(s), if any.
+fn find_optifine_download() -> Option<PathBuf> {
+    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    for dir in downloads_dirs() {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_lowercase();
+            if !(name.ends_with(".jar") && name.contains("optifine") && name.contains("1.8.9")) { continue; }
+            let p = e.path();
+            if !is_optifine_jar(&p) { continue; }
+            let t = e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
+            if best.as_ref().map(|b| t > b.0).unwrap_or(true) { best = Some((t, p)); }
+        }
+    }
+    best.map(|b| b.1)
+}
+
+fn is_optifine_jar(p: &Path) -> bool {
+    std::fs::File::open(p).ok().and_then(|f| zip::ZipArchive::new(f).ok()).map(|z| z.file_names().any(|n| n == "optifine/Installer.class")).unwrap_or(false)
+}
+
+/// %USERPROFILE%\Downloads plus wherever Windows says Downloads was moved to.
+fn downloads_dirs() -> Vec<PathBuf> {
+    let home = std::env::var("USERPROFILE").unwrap_or_default();
+    let mut dirs = vec![PathBuf::from(&home).join("Downloads")];
+    let q = std::process::Command::new("reg")
+        .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders", "/v", "{374DE290-123F-4565-9164-39C4925E467B}"])
+        .creation_flags(0x0800_0000).output();
+    if let Ok(o) = q {
+        let s = String::from_utf8_lossy(&o.stdout);
+        if let Some(v) = s.lines().find_map(|l| l.split("REG_EXPAND_SZ").nth(1).or_else(|| l.split("REG_SZ").nth(1))) {
+            let p = PathBuf::from(v.trim().replace("%USERPROFILE%", &home));
+            if !dirs.contains(&p) { dirs.push(p); }
+        }
+    }
+    dirs
+}
+
+/// Copies an installed OptiFine version (json + libraries) from a Minecraft folder into Kestrel.
+async fn import_optifine_from(state: &AppState, mc: &Path, id: &str) -> Res<String> {
+    let id = id.to_string();
     if id.contains(['/', '\\']) || id.contains("..") { return Err("Invalid version".into()); }
-    let mc = dot_minecraft();
     let src = mc.join("versions").join(&id).join(format!("{id}.json"));
     let s = std::fs::read_to_string(&src).map_err(|_| format!("{id} isn't installed in .minecraft"))?;
     let j: Value = serde_json::from_str(&s).map_err(err("OptiFine version file"))?;
@@ -202,7 +302,7 @@ pub async fn optifine_import(state: State<'_, AppState>, id: String) -> Res<Stri
     let dir = versions_dir().join(&id);
     std::fs::create_dir_all(&dir).map_err(err("Save OptiFine"))?;
     std::fs::write(dir.join(format!("{id}.json")), s).map_err(err("Save OptiFine"))?;
-    write_log(&state, &format!("Imported {id} from .minecraft"));
+    write_log(state, &format!("Imported {id} from {}", mc.display()));
     Ok(id)
 }
 

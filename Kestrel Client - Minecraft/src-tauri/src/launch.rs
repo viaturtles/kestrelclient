@@ -10,6 +10,86 @@ use std::process::Stdio;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+/// Gives Kestrel Core your Kestrel capes: every owned cape's texture in `<game folder>/kestrel/capes/<id>.png`
+/// and `kestrel/cosmetics.properties` (which one you wear, names, animation). Without Discord or the
+/// service, the files are removed. Only textures from Kestrel's own service are downloaded.
+async fn write_cosmetics(http: &reqwest::Client, game_dir: &std::path::Path) -> Result<usize, String> {
+    let dir = game_dir.join("kestrel");
+    let props = dir.join("cosmetics.properties");
+    let _ = std::fs::remove_file(dir.join("cape.png")); // the old one-cape files
+    let _ = std::fs::remove_file(dir.join("cape.properties"));
+    let _ = std::fs::create_dir_all(&dir);
+    // Your Minecraft (Mojang) capes, when signed in with Microsoft.
+    let mc = crate::account::game_capes(http, &dir).await.unwrap_or_default();
+    let base = crate::config::SERVICE_URL.trim_end_matches('/');
+    if base.is_empty() || crate::discord_account::access_token().is_none() {
+        if mc.is_empty() { let _ = std::fs::remove_file(&props); } else { std::fs::write(&props, &mc).map_err(|e| e.to_string())?; }
+        return Ok(0);
+    }
+    let me = crate::service::call(http, "GET", "/v1/me", None).await?;
+    let list = crate::service::call(http, "GET", "/v1/capes", None).await?;
+    let owned: Vec<String> = me["cosmetics"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+    let caps = dir.join("capes");
+    std::fs::create_dir_all(&caps).map_err(|e| e.to_string())?;
+    let mut out = format!("equipped={}\n", me["cape"]["id"].as_str().unwrap_or(""));
+    let mut ids = Vec::new();
+    for c in list["capes"].as_array().cloned().unwrap_or_default() {
+        let (Some(id), Some(url)) = (c["id"].as_str(), c["url"].as_str()) else { continue };
+        if !owned.iter().any(|o| o == id) || !id.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-') { continue }
+        if !url.starts_with(&format!("{base}/capes/")) { continue }
+        let bytes = http.get(url).send().await.map_err(|e| e.to_string())?.error_for_status().map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
+        if bytes.len() > 16 * 1024 * 1024 || !bytes.starts_with(b"\x89PNG") { continue }
+        std::fs::write(caps.join(format!("{id}.png")), &bytes).map_err(|e| e.to_string())?;
+        let name: String = c["name"].as_str().unwrap_or(id).chars().filter(|ch| !ch.is_control()).collect();
+        out += &format!("cape.{id}.name={name}\ncape.{id}.frames={}\ncape.{id}.fps={}\n", c["frames"].as_u64().unwrap_or(1).clamp(1, 256), c["fps"].as_u64().unwrap_or(0).min(60));
+        ids.push(id.to_string());
+    }
+    out += &format!("capes={}\n{mc}", ids.join(","));
+    std::fs::write(&props, out).map_err(|e| e.to_string())?;
+    Ok(ids.len())
+}
+
+/// Your friends for Kestrel Core's Friends tab: `<game folder>/kestrel/friends.properties`, refreshed while
+/// the game runs (the game itself never holds your Discord sign-in).
+async fn write_friends(http: &reqwest::Client, game_dir: &std::path::Path) {
+    let f = game_dir.join("kestrel").join("friends.properties");
+    if crate::config::SERVICE_URL.is_empty() || crate::discord_account::access_token().is_none() { let _ = std::fs::remove_file(&f); return; }
+    let Ok(v) = crate::service::call(http, "GET", "/v1/friends", None).await else { return };
+    // Java reads .properties as Latin-1, so anything else goes in as \uXXXX.
+    let clean = |s: &str| s.chars().filter(|c| !c.is_control()).map(|c| match c {
+        '\\' => "\\\\".to_string(),
+        ' '..='~' => c.to_string(),
+        _ => c.encode_utf16(&mut [0; 2]).iter().map(|u| format!("\\u{u:04x}")).collect(),
+    }).collect::<String>();
+    let mut out = String::new();
+    let list = v["friends"].as_array().cloned().unwrap_or_default();
+    for (i, p) in list.iter().enumerate() {
+        let status = if p["playing"] == true { "playing" } else if p["online"] == true { "launcher" } else { "offline" };
+        out += &format!("friend.{i}.name={}\nfriend.{i}.uuid={}\nfriend.{i}.status={status}\nfriend.{i}.server={}\nfriend.{i}.seen={}\n",
+            clean(p["name"].as_str().unwrap_or("?")), p["mcUuid"].as_str().unwrap_or(""), clean(p["server"].as_str().unwrap_or("")), p["lastSeen"].as_u64().unwrap_or(0));
+    }
+    out += &format!("count={}\nincoming={}\n", list.len(), v["incoming"].as_array().map(|a| a.len()).unwrap_or(0));
+    let _ = std::fs::write(&f, out);
+}
+
+/// A cape picked in game (Right Shift → Cosmetics) is saved to your account when the game closes.
+async fn send_cape_choice(app: &AppHandle, http: &reqwest::Client, game_dir: &std::path::Path) {
+    let f = game_dir.join("kestrel").join("cape-choice.properties");
+    let Ok(text) = std::fs::read_to_string(&f) else { return };
+    let _ = std::fs::remove_file(&f);
+    let get = |key: &str| text.lines().find_map(|l| l.strip_prefix(&format!("{key}="))).map(|s| s.trim().to_string());
+    let id = get("equipped").unwrap_or_default();
+    if crate::discord_account::access_token().is_some() {
+        let body = serde_json::json!({ "cape": if id.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(id) } });
+        let _ = crate::service::call(http, "POST", "/v1/me/cape", Some(body)).await;
+    }
+    // A Minecraft cape picked in game goes onto your Minecraft account.
+    if let Some(mc) = get("mc") {
+        let _ = crate::account::set_cape(http, if mc.is_empty() { None } else { Some(mc) }).await;
+    }
+    let _ = app.emit("kestrel://me", ());
+}
+
 #[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchRequest {
@@ -39,20 +119,68 @@ pub struct LaunchRequest {
 #[serde(rename_all = "camelCase")]
 struct Stats { cpu: f32, memory_mb: u64 }
 
-/// Plain-English explanations for the most common Minecraft 1.8.9 crashes.
-pub fn explain_crash(text: &str) -> Option<&'static str> {
+/// Plain-English explanations for the most common Minecraft 1.8.9 crashes, with the id of the
+/// one-click fix Launch Control offers ("" when there's nothing Kestrel can do itself).
+pub fn explain_crash(text: &str) -> Option<(&'static str, &'static str)> {
     let t = text.to_lowercase();
-    let rules: [(&[&str], &str); 8] = [
-        (&["outofmemoryerror", "java heap space"], "Minecraft ran out of memory. Raise Memory in this installation's Settings (2–4 GB suits 1.8.9)."),
-        (&["could not reserve enough space", "could not create the java virtual machine", "invalid maximum heap size"], "Java couldn't start with the memory you chose. Lower Memory, or check your Java arguments."),
-        (&["pixel format not accelerated", "opengl", "no opengl context"], "Your graphics driver couldn't start OpenGL. Update your NVIDIA graphics driver and try again."),
-        (&["unsatisfiedlinkerror", "lwjgl"], "Minecraft's native libraries failed to load. Kestrel will re-check them next launch; if it repeats, delete versions\\1.8.9\\natives in Kestrel's folder."),
-        (&["unsupportedclassversionerror"], "A file needs a newer Java than the one used. 1.8.9 needs Java 8; set Java to Automatic."),
-        (&["optifine", "classnotfoundexception"], "OptiFine failed to load. Re-import it from Installations → Overview → OptiFine, or switch the launch mode to Standard."),
-        (&["zipexception", "invalid loc header", "corrupt"], "A game file is damaged. Launch again and Kestrel will re-download anything that fails its check."),
-        (&["exception in server tick loop", "ticking entity"], "The world crashed while running. Back up the world from the Worlds tab before trying again."),
+    let rules: [(&[&str], &str, &str); 8] = [
+        (&["outofmemoryerror", "java heap space"], "Minecraft ran out of memory. Kestrel can give it more and start again.", "memory"),
+        (&["could not reserve enough space", "could not create the java virtual machine", "invalid maximum heap size"], "Java couldn't start with the memory or Java arguments you chose.", "jvm"),
+        (&["pixel format not accelerated", "opengl", "no opengl context"], "Your graphics driver couldn't start OpenGL. Update your graphics driver (NVIDIA, AMD or Intel) and try again.", ""),
+        (&["unsatisfiedlinkerror", "lwjgl"], "Minecraft's native libraries failed to load. Kestrel can unpack them again.", "natives"),
+        (&["unsupportedclassversionerror"], "The Java used is the wrong version for 1.8.9, which needs Java 8.", "java"),
+        (&["optifine", "classnotfoundexception"], "OptiFine failed to load. Try without it, or set it up again from Installations → Overview → OptiFine.", "standard"),
+        (&["zipexception", "invalid loc header", "corrupt"], "A game file is damaged. Kestrel can check every file and download the broken ones again.", "files"),
+        (&["exception in server tick loop", "ticking entity"], "The world crashed while running. Kestrel can back up your worlds before you try again.", "world"),
     ];
-    rules.iter().find(|(keys, _)| keys.iter().any(|k| t.contains(k))).map(|(_, msg)| *msg)
+    rules.iter().find(|(keys, _, _)| keys.iter().any(|k| t.contains(k))).map(|(_, msg, fix)| (*msg, *fix))
+}
+
+/// Seconds played per installation: total, sessions, the last session and the last 30 days
+/// (`%APPDATA%\Kestrel\stats.json`).
+fn record_session(id: &str, secs: u64) {
+    let path = data_dir().join("stats.json");
+    let mut all: serde_json::Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}));
+    let day = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() / 86400).unwrap_or(0);
+    let s = &mut all[id];
+    s["seconds"] = (s["seconds"].as_u64().unwrap_or(0) + secs).into();
+    s["sessions"] = (s["sessions"].as_u64().unwrap_or(0) + 1).into();
+    s["longest"] = s["longest"].as_u64().unwrap_or(0).max(secs).into();
+    s["last"] = secs.into();
+    let mut days: serde_json::Map<String, serde_json::Value> = s["days"].as_object().cloned().unwrap_or_default();
+    let key = day.to_string();
+    let today = days.get(&key).and_then(|v| v.as_u64()).unwrap_or(0) + secs;
+    days.insert(key, today.into());
+    days.retain(|k, _| k.parse::<u64>().map(|d| d + 30 >= day).unwrap_or(false));
+    s["days"] = serde_json::Value::Object(days);
+    let _ = std::fs::write(&path, serde_json::to_string(&all).unwrap_or_default());
+}
+
+#[tauri::command]
+pub fn play_stats() -> Res<serde_json::Value> {
+    let path = data_dir().join("stats.json");
+    Ok(std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({})))
+}
+
+/// Launch Control's one-click crash fixes: changes the last launch, tells the main window to keep
+/// the change (`kestrel://fix`), and starts again.
+#[tauri::command]
+pub async fn relaunch_fix(app: AppHandle, state: State<'_, AppState>, fix: String) -> Res<()> {
+    let Some(mut req) = state.last_launch.lock().unwrap().clone() else { return Err("Nothing has been launched yet.".into()) };
+    req.world = None;
+    req.backup_worlds = false;
+    let mut keep = serde_json::json!({ "instanceId": req.instance_id });
+    match fix.as_str() {
+        "standard" => req.mode = "Standard".into(),
+        "memory" => { req.memory_gb = (req.memory_gb + 2).clamp(3, 8); keep["memoryGb"] = req.memory_gb.into(); }
+        "jvm" => { req.memory_gb = 3; req.jvm_args = String::new(); keep["memoryGb"] = 3.into(); keep["jvmArgs"] = "".into(); }
+        "java" => { req.java_path = None; keep["javaPath"] = serde_json::Value::Null; }
+        "natives" => { let (_, _, natives) = mojang::version_paths(&req.version); let _ = std::fs::remove_dir_all(natives); }
+        "world" => req.backup_worlds = true,
+        _ => {} // "files": the launch checks every file anyway
+    }
+    if keep.as_object().map(|o| o.len() > 1).unwrap_or(false) { let _ = app.emit("kestrel://fix", keep); }
+    launch_game(app, state, req).await
 }
 
 #[derive(serde::Serialize)]
@@ -129,6 +257,16 @@ pub async fn relaunch_last(app: AppHandle, state: State<'_, AppState>, standard:
 }
 
 const AGENT: &[u8] = include_bytes!("../agent/kestrel-agent.jar");
+/// Kestrel Core, the in-game mod (main menu, Right Shift panel, HUD mods). Source in core/.
+pub(crate) const CORE: &[u8] = include_bytes!("../core/kestrel-core.jar");
+
+/// Writes a bundled jar to Kestrel's tools folder (only when it changed) and returns its path.
+pub(crate) fn tool_jar(name: &str, bytes: &[u8]) -> Res<PathBuf> {
+    let path = data_dir().join("tools").join(name);
+    std::fs::create_dir_all(path.parent().unwrap()).map_err(err("Kestrel tools"))?;
+    if std::fs::read(&path).map(|b| b != bytes).unwrap_or(true) { std::fs::write(&path, bytes).map_err(err("Kestrel tools"))?; }
+    Ok(path)
+}
 
 async fn run(app: &AppHandle, st: &AppState, req: LaunchRequest) -> Res<()> {
     m_reset(app, st, &format!("{} · Minecraft {}", req.name, req.version));
@@ -139,6 +277,15 @@ async fn run(app: &AppHandle, st: &AppState, req: LaunchRequest) -> Res<()> {
     m_log(app, st, "info", &format!("Preparing {} (Minecraft {}, {}, {} GB)", req.name, req.version, req.mode, req.memory_gb));
     let game_dir = ensure_instance(&req.instance_id)?;
     m_log(app, st, "info", &format!("Game folder: {}", game_dir.display()));
+    // Capes that can't be fetched never stop the launch.
+    match write_cosmetics(&st.http, &game_dir).await {
+        Ok(n) if n > 0 => m_log(app, st, "info", &format!("Kestrel capes ready: {n}")),
+        Ok(_) => {}
+        Err(e) => m_log(app, st, "warn", &format!("Capes not loaded: {e}")),
+    }
+    // Where Kestrel Core finds the public parts of the service (who uses Kestrel, their capes).
+    let _ = std::fs::write(game_dir.join("kestrel").join("service.properties"), format!("url={}\n", crate::config::SERVICE_URL));
+    write_friends(&st.http, &game_dir).await;
 
     // 1. Java
     m_step(app, st, "java", "running", "Java runtime", "Looking for Java 8");
@@ -193,16 +340,21 @@ async fn run(app: &AppHandle, st: &AppState, req: LaunchRequest) -> Res<()> {
         "-Xms512M".into(),
         format!("-Djava.library.path={}", natives.display()),
         "-Dminecraft.launcher.brand=kestrel".into(),
-        "-Dminecraft.launcher.version=0.1.0".into(),
+        format!("-Dminecraft.launcher.version={}", env!("CARGO_PKG_VERSION")),
     ];
     jvm.extend(req.jvm_args.split_whitespace().filter(|a| a.starts_with("-X") || a.starts_with("-D")).map(String::from));
+    // Kestrel Core goes into every 1.8.9 launch (it hooks 1.8.9's own class names).
+    if req.version == "1.8.9" {
+        let path = tool_jar("kestrel-core.jar", CORE)?;
+        jvm.push(format!("-javaagent:{}", path.display()));
+        jvm.push(format!("-Dkestrel.version={}", env!("CARGO_PKG_VERSION")));
+        m_log(app, st, "info", "Adding Kestrel Core (Right Shift opens your mods)");
+    }
     // Open a singleplayer world straight away (1.8.9 has no built-in option for this).
     if let Some(world) = req.world.as_deref().filter(|w| !w.is_empty()) {
         let folder = safe_file_name(world)?.to_string();
         if game_dir.join("saves").join(&folder).join("level.dat").is_file() {
-            let path = data_dir().join("tools").join("kestrel-agent.jar");
-            std::fs::create_dir_all(path.parent().unwrap()).map_err(err("Quick play"))?;
-            if std::fs::read(&path).map(|b| b != AGENT).unwrap_or(true) { std::fs::write(&path, AGENT).map_err(err("Quick play"))?; }
+            let path = tool_jar("kestrel-agent.jar", AGENT)?;
             use base64::Engine;
             jvm.push(format!("-javaagent:{}={}", path.display(), base64::engine::general_purpose::STANDARD.encode(folder.as_bytes())));
             m_log(app, st, "info", &format!("Will open the world \"{folder}\" after starting"));
@@ -288,8 +440,16 @@ async fn run(app: &AppHandle, st: &AppState, req: LaunchRequest) -> Res<()> {
             let tok = if offline { None } else { Some(token.clone()) };
             let (inst_id, ver) = (req.instance_id.clone(), req.version.clone());
             tauri::async_runtime::spawn(async move {
-                let mut lines = BufReader::new(s).lines();
-                while let Ok(Some(l)) = lines.next_line().await {
+                // Read raw bytes: Java 8 on Windows writes its console in the ANSI code page (e.g. "§" in chat),
+                // and a strict UTF-8 reader would stop at the first such line, leaving the game's output pipe
+                // full (which can freeze Minecraft).
+                let mut reader = BufReader::new(s);
+                let mut buf = Vec::new();
+                loop {
+                    buf.clear();
+                    match reader.read_until(b'\n', &mut buf).await { Ok(0) | Err(_) => break, Ok(_) => {} }
+                    while matches!(buf.last(), Some(b'\n' | b'\r')) { buf.pop(); }
+                    let l = match String::from_utf8(buf.clone()) { Ok(s) => s, Err(_) => buf.iter().map(|&b| b as char).collect() };
                     let l = match &tok { Some(t) => l.replace(t, "<hidden>"), None => l };
                     let lvl = if l.contains("/ERROR]") || l.contains("Exception") { "error" } else if l.contains("/WARN]") { "warn" } else { level };
                     let s = a.state::<AppState>();
@@ -317,23 +477,35 @@ async fn run(app: &AppHandle, st: &AppState, req: LaunchRequest) -> Res<()> {
     // Watch the process: live CPU / memory, then explain the exit.
     let a = app.clone();
     let crash_dir = game_dir.join("crash-reports");
+    let (started, inst_id, gdir) = (std::time::Instant::now(), req.instance_id.clone(), game_dir.clone());
     tauri::async_runtime::spawn(async move {
         let mut sys = sysinfo::System::new();
         let spid = sysinfo::Pid::from_u32(pid);
+        let mut ticks = 0u32;
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            ticks += 1;
+            if ticks % 30 == 0 { write_friends(&a.state::<AppState>().http, &gdir).await; }
             sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[spid]), true);
             if let Some(p) = sys.process(spid) {
                 let _ = a.emit("kestrel://stats", Stats { cpu: p.cpu_usage(), memory_mb: p.memory() / 1_048_576 });
             }
             let s = a.state::<AppState>();
             let mut g = s.game.lock().await;
-            let Some(p) = g.as_mut() else { break };
+            let Some(p) = g.as_mut() else {
+                // Stopped from Launch Control.
+                record_session(&inst_id, started.elapsed().as_secs());
+                drop(g);
+                send_cape_choice(&a, &s.http, &gdir).await;
+                break;
+            };
             if let Ok(Some(status)) = p.child.try_wait() {
                 let code = status.code().unwrap_or(-1);
                 *g = None;
                 drop(g);
                 s.discord.game(None);
+                record_session(&inst_id, started.elapsed().as_secs());
+                send_cape_choice(&a, &s.http, &gdir).await;
                 if code == 0 {
                     m_log(&a, s.inner(), "info", "Minecraft closed normally.");
                     m_state(&a, s.inner(), "exited", "Closed normally");
@@ -342,9 +514,9 @@ async fn run(app: &AppHandle, st: &AppState, req: LaunchRequest) -> Res<()> {
                     let recent: String = s.mission.lock().unwrap().iter().rev().take(400).filter_map(|e| e.line.clone()).collect::<Vec<_>>().join("\n");
                     let report = std::fs::read_dir(&crash_dir).ok().and_then(|rd| rd.flatten().max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok()))
                         .and_then(|e| std::fs::read_to_string(e.path()).ok()).unwrap_or_default();
-                    let why = explain_crash(&format!("{recent}\n{report}")).unwrap_or("Minecraft stopped unexpectedly. The console above shows the last messages it printed.");
+                    let (why, fix) = explain_crash(&format!("{recent}\n{report}")).unwrap_or(("Minecraft stopped unexpectedly. The console above shows the last messages it printed.", ""));
                     m_log(&a, s.inner(), "warn", &format!("What happened: {why}"));
-                    m_state(&a, s.inner(), "crashed", why);
+                    m_state_fix(&a, s.inner(), "crashed", why, fix);
                 }
                 break;
             }

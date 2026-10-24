@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check, ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, Trash2, X } from "lucide-react";
 import { useApp } from "../lib/store";
 
 /** Closes on outside click or Escape. */
@@ -26,7 +26,7 @@ export function Seg<T extends string>({ items, value, onChange, onSurface, label
     <div className={"seg" + (onSurface ? " on-surface" : "")} ref={ref} role="tablist" aria-label={label}>
       <span className="pill" style={{ transform: `translateX(${pill.x}px)`, width: pill.w }} />
       {items.map((it) => (
-        <button key={it.value} role="tab" aria-selected={it.value === value} className={it.value === value ? "on" : ""} onClick={() => onChange(it.value)}>
+        <button type="button" key={it.value} role="tab" aria-selected={it.value === value} className={it.value === value ? "on" : ""} onClick={() => onChange(it.value)}>
           {it.icon}{it.label}
         </button>
       ))}
@@ -35,7 +35,7 @@ export function Seg<T extends string>({ items, value, onChange, onSurface, label
 }
 
 export function Toggle({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
-  return <button className="toggle" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onChange(!checked)} />;
+  return <button type="button" className="toggle" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onChange(!checked)} />;
 }
 
 export function Select<T extends string>({ value, options, onChange, label, width = 180, render }: {
@@ -47,13 +47,13 @@ export function Select<T extends string>({ value, options, onChange, label, widt
   const cur = options.find((o) => o.value === value);
   return (
     <div className="select" ref={ref} style={{ width }}>
-      <button aria-haspopup="listbox" aria-expanded={open} aria-label={label} onClick={() => setOpen((o) => !o)}>
+      <button type="button" aria-haspopup="listbox" aria-expanded={open} aria-label={label} onClick={() => setOpen((o) => !o)}>
         <span>{render ? render(value) : cur?.label ?? value}</span><ChevronDown size={16} />
       </button>
       {open && (
         <div className="menu" role="listbox" style={{ top: 42, right: 0, minWidth: width }}>
           {options.map((o) => (
-            <button key={o.value} role="option" aria-selected={o.value === value} className={"mi" + (o.value === value ? " active" : "")} onClick={() => { onChange(o.value); setOpen(false); }}>
+            <button type="button" key={o.value} role="option" aria-selected={o.value === value} className={"mi" + (o.value === value ? " active" : "")} onClick={() => { onChange(o.value); setOpen(false); }}>
               <span style={{ display: "flex", flexDirection: "column", gap: 2 }}><span>{o.label}</span>{o.hint && <span className="t-cap" style={{ fontWeight: 400 }}>{o.hint}</span>}</span>
               {o.value === value && <Check size={14} className="check" />}
             </button>
@@ -106,7 +106,8 @@ export function DialogHost() {
     <div className="backdrop" onMouseDown={(e) => e.target === e.currentTarget && app.closeDialog()}>
       <section className={"dialog" + (app.dialog.wide ? " wide" : "")} role="dialog" aria-modal="true" aria-label={app.dialog.title} tabIndex={-1} ref={ref}>
         <div className="dh">
-          <div><h2 className="t-title">{app.dialog.title}</h2></div>
+          {app.dialog.icon && <span className={"dtile" + (app.dialog.tone === "danger" ? " danger" : "")}>{app.dialog.icon}</span>}
+          <div><h2>{app.dialog.title}</h2>{app.dialog.sub && <p className="dsub">{app.dialog.sub}</p>}</div>
           <button className="ibtn sm" aria-label="Close" onClick={app.closeDialog}><X size={16} /></button>
         </div>
         {app.dialog.body}
@@ -121,12 +122,16 @@ export function ToastHost() {
   return <div className={"toast" + (toast.tone === "error" ? " error" : "")} role="status" key={toast.id}><span className="dot" />{toast.text}</div>;
 }
 
-export function confirmDialog(app: ReturnType<typeof useApp>, opts: { title: string; text: string; confirm: string; danger?: boolean; onConfirm: () => void | Promise<void> }) {
+/** text is the one line under the title; children go in the body above the buttons. */
+export function confirmDialog(app: ReturnType<typeof useApp>, opts: { title: string; text: React.ReactNode; confirm: string; icon?: React.ReactNode; danger?: boolean; children?: React.ReactNode; onConfirm: () => void | Promise<void> }) {
   app.openDialog({
     title: opts.title,
+    sub: opts.text,
+    icon: opts.icon ?? (opts.danger ? <Trash2 size={18} /> : undefined),
+    tone: opts.danger ? "danger" : undefined,
     body: (
       <>
-        <p className="muted" style={{ lineHeight: "20px" }}>{opts.text}</p>
+        {opts.children}
         <div className="actions">
           <button className="btn ghost" onClick={app.closeDialog}>Cancel</button>
           <button className={"btn " + (opts.danger ? "danger" : "green")} onClick={async () => { app.closeDialog(); await opts.onConfirm(); }}>{opts.confirm}</button>

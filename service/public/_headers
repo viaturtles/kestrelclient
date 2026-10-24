@@ -1,0 +1,4 @@
+# Cape textures are drawn by the launcher's 3D preview (WebGL), which needs CORS.
+/capes/*
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=3600

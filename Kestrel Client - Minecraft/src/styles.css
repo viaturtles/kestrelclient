@@ -40,6 +40,13 @@ h1, h2, h3, p { margin: 0; }
 .brand { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px; border-radius: 7px; font-size: 10px; font-weight: 600; letter-spacing: 2px; transition: background var(--fast); }
 .brand:hover, .brand[aria-expanded="true"] { background: var(--control); }
 .brand img { width: 18px; height: 18px; }
+/* Top bar status: only while something is happening. Slightly rounded box, no glow. */
+.statusbox { position: relative; margin-left: 12px; height: 24px; padding: 0 10px; border-radius: 6px; display: flex; align-items: center; gap: 8px; overflow: hidden;
+  background: var(--surface); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08); font-size: 12px; white-space: nowrap; max-width: 520px; animation: fade calc(160ms * var(--m)) both; }
+.statusbox:hover { background: var(--hover); }
+.statusbox b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.statusbox span { color: var(--text3); font-weight: 500; }
+.statusbox i { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--accent); transition: width var(--base) var(--ease); }
 .histnav { display: flex; align-items: center; gap: 2px; margin-left: 12px; }
 .histnav button { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; color: var(--text2); }
 .histnav button:hover:not(:disabled) { background: var(--control); color: var(--text); }
@@ -173,9 +180,11 @@ textarea.field { height: auto; min-height: 80px; padding: 10px 12px; resize: ver
 .menu .mi.danger, .menu .mi.danger svg { color: var(--danger); }
 
 /* grouped settings rows */
-.group { display: flex; flex-direction: column; gap: 8px; }
-.group > .gt { font-size: 12px; font-weight: 500; color: var(--text3); }
+.group { display: flex; flex-direction: column; gap: 2px; background: var(--surface); border-radius: 12px; padding: 12px 16px 2px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .04); }
+.group > .gt { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text3); }
 .rows { background: var(--surface); border-radius: 12px; padding: 0 16px; }
+.group > .rows { background: none; padding: 0; border-radius: 0; }
+.group > .rows > .row { min-height: 50px; padding: 10px 0; }
 .row { display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--divider); min-height: 56px; }
 .row:last-child { border-bottom: 0; }
 .row .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -215,6 +224,15 @@ textarea.field { height: auto; min-height: 80px; padding: 10px 12px; resize: ver
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .38), 0 3px 0 rgba(11, 58, 28, .55); transition: transform var(--fast) var(--ease), filter var(--fast); }
 .plain:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.05); }
 .plain:active:not(:disabled) { transform: translateY(1px); }
+/* Page buttons (every page but Home): Turtles' "PLAY HYPIXEL" prototype, toned down. Soft sheen, dark text. */
+.cta { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 180px; height: 40px; padding: 0 18px; border-radius: 8px;
+  font-size: 13px; font-weight: 800; letter-spacing: .04em; color: #0c0d0f; white-space: nowrap;
+  background: linear-gradient(115deg, #22b863 0%, #36d97a 38%, #5be596 52%, #36d97a 66%, #22b863 100%) 0 0 / 220% 100%;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22), inset 0 1px 0 rgba(255, 255, 255, .35), 0 2px 6px rgba(0, 0, 0, .3);
+  transition: background-position calc(600ms * var(--m)) var(--ease), transform var(--fast) var(--ease); }
+.cta:hover:not(:disabled) { background-position: 100% 0; transform: translateY(-1px); }
+.cta:active:not(:disabled) { transform: translateY(1px); }
+.cta.sm { min-width: 0; height: 32px; padding: 0 14px; font-size: 12px; }
 
 /* ---------- Splash (Figma 53:559) ---------- */
 .splash { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: #0f1012; transition: opacity calc(420ms * var(--m)) var(--ease), visibility 0s linear calc(420ms * var(--m)); }
@@ -232,12 +250,34 @@ textarea.field { height: auto; min-height: 80px; padding: 10px 12px; resize: ver
 /* ---------- Overlays ---------- */
 .backdrop { position: fixed; inset: 0; z-index: 90; background: rgba(5, 6, 10, .6); display: grid; place-items: center; animation: fade calc(160ms * var(--m)) both; }
 @keyframes fade { from { opacity: 0; } }
-.dialog { width: 520px; max-width: calc(100vw - 48px); max-height: calc(100vh - 80px); overflow: auto; padding: 24px; border-radius: 16px; background: var(--surface); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08), 0 24px 60px rgba(0, 0, 0, .55); animation: dlg calc(220ms * var(--m)) var(--ease) both; display: flex; flex-direction: column; gap: 16px; }
-.dialog.wide { width: 600px; }
+.dialog { width: 440px; max-width: calc(100vw - 48px); max-height: calc(100vh - 80px); overflow: auto; padding: 24px; border-radius: 16px; background: var(--surface); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08), 0 24px 60px rgba(0, 0, 0, .55); animation: dlg calc(220ms * var(--m)) var(--ease) both; display: flex; flex-direction: column; gap: 20px; }
+.dialog.wide { width: 560px; }
 @keyframes dlg { from { opacity: 0; transform: translateY(12px) scale(.98); } }
-.dialog .dh { display: flex; align-items: flex-start; gap: 12px; }
-.dialog .dh > div { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.dialog .dh { display: flex; align-items: flex-start; gap: 14px; }
+.dialog .dh > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding-top: 1px; }
+.dialog .dh h2 { font-size: 16px; font-weight: 600; line-height: 22px; }
+.dialog .dsub { font-size: 13px; line-height: 18px; color: var(--text2); }
+.dialog .dtile { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--hover); color: var(--text); }
+.dialog .dtile.danger { background: #3a1f24; color: var(--danger); }
+.dialog .inset { background: var(--window); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.dialog .inset.rows { padding: 4px 16px; gap: 0; }
+.dialog .inset.rows > div { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; font-size: 13px; }
+.dialog .inset.rows > div + div { box-shadow: 0 -1px 0 rgba(255, 255, 255, .06); }
+.dialog .inset.rows > div > span:first-child { color: var(--text2); }
+.dialog .inset.rows > div > span:last-child { text-align: right; }
+.dialog .steps { display: flex; flex-direction: column; gap: 12px; }
+.dialog .steps > div { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.dialog .steps .n { width: 22px; height: 22px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--accent-tint); color: var(--accent-text); font-size: 12px; font-weight: 600; }
+.dialog .bullets { display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 18px; }
+.dialog .bullets li { list-style: none; display: flex; gap: 10px; }
+.dialog .bullets li::before { content: ""; width: 5px; height: 5px; margin-top: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+.dialog .note { font-size: 12px; line-height: 17px; color: var(--text3); }
+.dialog .indet { height: 3px; border-radius: 2px; background: rgba(255, 255, 255, .06); overflow: hidden; position: relative; }
+.dialog .indet::after { content: ""; position: absolute; inset: 0 auto 0 0; width: 35%; border-radius: 2px; background: var(--accent); animation: indet calc(1400ms * var(--m)) ease-in-out infinite; }
+@keyframes indet { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
 .dialog .actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.dialog .actions .link { margin-right: auto; background: none; border: 0; color: var(--text2); font-size: 13px; font-weight: 500; cursor: pointer; padding: 0; display: inline-flex; align-items: center; gap: 6px; }
+.dialog .actions .link:hover { color: var(--text); }
 .dialog label { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: var(--text2); font-weight: 500; }
 .popover { position: absolute; z-index: 80; border-radius: 14px; background: var(--surface); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08), 0 16px 40px rgba(0, 0, 0, .5); animation: pop calc(160ms * var(--m)) var(--ease) both; }
 .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 120; display: flex; align-items: center; gap: 10px; max-width: 560px; padding: 11px 16px; border-radius: 10px; background: var(--hover); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08), 0 12px 30px rgba(0, 0, 0, .45); font-size: 12px; font-weight: 500; animation: toast calc(240ms * var(--m)) var(--ease) both; }
